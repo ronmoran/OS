@@ -1,0 +1,13 @@
+ronmoran, noimimran
+Ron Moran (206170920), Noi Maymaran (208550400)
+
+FILES:
+
+REMARKS:
+
+ANSWERS:
+
+Assignment 1:
+The program duplicates the file STDERR to another file descriptor, gets its permissions (read/write) and other data (using fstat which writes to the supplied struct "stat") and then writes an error message.
+The error message is that it needs arguments to run, prints "Success" and exits with error code 0.
+
