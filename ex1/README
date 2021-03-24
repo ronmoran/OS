@@ -8,6 +8,12 @@ REMARKS:
 ANSWERS:
 
 Assignment 1:
-The program duplicates the file STDERR to another file descriptor, gets its permissions (read/write) and other data (using fstat which writes to the supplied struct "stat") and then writes an error message.
+The program duplicates the file STDERR to another file descriptor, gets its permissions (read/write) and other data
+(using fstat which writes to the supplied struct "stat") and then writes an error message.
 The error message is that it needs arguments to run, prints "Success" and exits with error code 0.
+If an argument is supplied a directory named "Welcome" is created, in it a directory named "To"
+is created and in it a file named "OS2021" is opened for writing.
+The message "<username>\nIf you haven't read the course guidelines yet --- do it right now!\n1" is written to the file
+and the number of bytes written is returned.
+Lastly the opened file is removed, then the containing directory "To" and the containing directory "Welcome" is removed.
 
