@@ -17,7 +17,7 @@ double calc_timeval_diff(struct timeval tv_start, struct timeval tv_end, size_t 
              (tv_start.tv_sec * MICRO + tv_start.tv_usec)) * MICRO_TO_NANO) / (double) iterations;
 }
 
-void empty_func() {
+void emptyFunc() {
 
 }
 
@@ -28,19 +28,23 @@ double osm_operation_time(unsigned int iterations) {
     int success = gettimeofday(&tv_start, NULL);
     if (iterations == 0 || success == FAILURE)
         return FAILURE;
+    int x;
     for (i=0; i < iterations; i+=UNROLLING_FACTOR) {
-        1 + 2;
-        3 + 4;
-        5 + 6;
-        7 + 8;
-        9 + 10;
-        11 + 12;
-        13 + 14;
-        15 + 16;
-        17 + 18;
-        19 + 20;
+        x=1 + 2;
+        x=3 + 4;
+        x=5 + 6;
+        x=7 + 8;
+        x=9 + 10;
+        x=11 + 12;
+        x=13 + 14;
+        x=15 + 16;
+        x=17 + 18;
+        x=19 + 20;
     }
     success = gettimeofday(&tv_end, NULL);
+    //FILE *devNull = fopen("/dev/null", "w");
+    //fprintf(devNull, "%d", x);
+    (void)x;
     if (success == FAILURE)
         return FAILURE;
     return calc_timeval_diff(tv_start, tv_end, i);
@@ -54,16 +58,16 @@ double osm_function_time(unsigned int iterations) {
     if (iterations == 0 || success == FAILURE)
         return FAILURE;
     for (i=0; i < iterations; i+=UNROLLING_FACTOR) {
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
-        empty_func();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
+        emptyFunc();
     }
     success = gettimeofday(&tv_end, NULL);
     if (success == FAILURE)
