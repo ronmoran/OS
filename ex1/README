@@ -17,3 +17,15 @@ The message "<username>\nIf you haven't read the course guidelines yet --- do it
 and the number of bytes written is returned.
 Lastly the opened file is removed, then the containing directory "To" and the containing directory "Welcome" is removed.
 
+
+Assignment 2:
+
+We created a main file which is not included in the tar to run the three functions.
+The function "osm_operation_time" was a bit tricky since there are some compiler optimization which might
+skip the actual addition process. That's the case for lines such as "x = 5 + 8" because the compiler performs the
+addition and just stores the value 13 in x directly.
+We compiled the file using the "-S" flag and checked the assembly instructions. There it was visible that
+an addition operation is carried out multiple times per iteration, it is not saved to the memory after each iteration
+but to the register, and other repeating lines also compile to repeating ASM instructions.
+Only then did we know that the functions actually run the operations multiple time without any compiler optimizations
+
