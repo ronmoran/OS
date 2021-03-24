@@ -1,7 +1,3 @@
-//
-// Created by Ron on 3/20/2021.
-//
-
 #include "osm.h"
 #include <stdio.h>
 #include <sys/time.h>
@@ -9,8 +5,6 @@
 #define MICRO_TO_NANO 1e3
 #define UNROLLING_FACTOR 10
 #define FAILURE -1
-//typedef struct timeval timeval;
-//typedef struct timezone timezone;
 
 double calc_timeval_diff(struct timeval tv_start, struct timeval tv_end, size_t iterations) {
     return (((tv_end.tv_sec * MICRO + tv_end.tv_usec)  -
@@ -28,7 +22,7 @@ double osm_operation_time(unsigned int iterations) {
     int success = gettimeofday(&tv_start, NULL);
     if (iterations == 0 || success == FAILURE)
         return FAILURE;
-    int x=0;
+    int x=0; // without this line the compiler just computes the additions
     for (i=0; i < iterations; i+=UNROLLING_FACTOR) {
         x=x + 1;
         x=x + 4;
@@ -42,9 +36,7 @@ double osm_operation_time(unsigned int iterations) {
         x=x + 20;
     }
     success = gettimeofday(&tv_end, NULL);
-    //FILE *devNull = fopen("/dev/null", "w");
-    //fprintf(devNull, "%d", x);
-    (void)x;
+    (void)x; //suppress warning
     if (success == FAILURE)
         return FAILURE;
     return calc_timeval_diff(tv_start, tv_end, i);
