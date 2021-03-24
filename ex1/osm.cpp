@@ -28,18 +28,18 @@ double osm_operation_time(unsigned int iterations) {
     int success = gettimeofday(&tv_start, NULL);
     if (iterations == 0 || success == FAILURE)
         return FAILURE;
-    int x;
+    int x=0;
     for (i=0; i < iterations; i+=UNROLLING_FACTOR) {
-        x=1 + 2;
-        x=3 + 4;
-        x=5 + 6;
-        x=7 + 8;
-        x=9 + 10;
-        x=11 + 12;
-        x=13 + 14;
-        x=15 + 16;
-        x=17 + 18;
-        x=19 + 20;
+        x=x + 1;
+        x=x + 4;
+        x=x + 6;
+        x=x + 8;
+        x=x + 10;
+        x=x + 12;
+        x=x + 14;
+        x=x + 16;
+        x=x + 18;
+        x=x + 20;
     }
     success = gettimeofday(&tv_end, NULL);
     //FILE *devNull = fopen("/dev/null", "w");
