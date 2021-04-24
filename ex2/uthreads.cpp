@@ -1,5 +1,5 @@
 #include "uthreads.h"
-#include "Manager.cpp"
+#include "Scheduler.cpp"
 
 
 #define SUCCESS 0
@@ -146,3 +146,7 @@ int uthread_get_quantums(int tid){
     return 0;
 }
 
+int main(void)
+{
+    uthread_init(10);
+}

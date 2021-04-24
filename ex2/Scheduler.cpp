@@ -33,20 +33,21 @@ class Scheduler
 private:
 
     static unsigned int running;
+    static unsigned int quantum;
     static std::forward_list<int> ready;
     static std::unordered_map<unsigned int, Thread> threads;
 public:
-    static unsigned int quantum;
 
     static void initScheduler(int usecs);
 };
 
 unsigned int Scheduler::quantum = 0;
+unsigned int Scheduler::running = 0;
 
 void Scheduler::initScheduler(int usecs)
 {
     Scheduler::quantum = usecs;
-    running = MAIN_THREAD;
+    Scheduler::running = MAIN_THREAD;
 
 
 }
