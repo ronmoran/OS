@@ -2,9 +2,6 @@
 #include "Scheduler.cpp"
 
 
-#define SUCCESS 0
-#define FAILURE -1
-
 
 /*
  * Description: This function initializes the thread library.
@@ -16,7 +13,7 @@
 */
 int uthread_init(int quantum_usecs){
     if (quantum_usecs <= 0){
-        return FAILURE;
+        return FAILURE; //todo print print error
     }
     Scheduler::initScheduler(quantum_usecs);
     return SUCCESS;
@@ -36,7 +33,10 @@ int uthread_init(int quantum_usecs){
  * On failure, return -1.
 */
 int uthread_spawn(void (*f)(void)){
-    return 0;
+    if(Scheduler::getThreadCount() >= MAX_THREAD_NUM) {
+        return FAILURE; //todo message
+    }
+    return Scheduler::spawnThread(f);
 }
 
 
@@ -53,7 +53,7 @@ int uthread_spawn(void (*f)(void)){
  * thread is terminated, the function does not return.
 */
 int uthread_terminate(int tid){
-    return 0;
+    return Scheduler::terminateThread(tid);
 }
 
 
@@ -145,8 +145,17 @@ int uthread_get_total_quantums(){
 int uthread_get_quantums(int tid){
     return 0;
 }
-
+//todo remove
+void doNothing(){}
 int main(void)
 {
+    address_t pc = (address_t)doNothing;
+    std::cerr << translate_address(pc) << std::endl;
+    std::cerr.flush();
     uthread_init(10);
+    uthread_spawn(doNothing);
+    uthread_spawn(doNothing);
+    uthread_spawn(doNothing);
+    Scheduler::switchThreads();
+    std::cout<<uthread_terminate(0);
 }
