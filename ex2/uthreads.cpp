@@ -69,7 +69,7 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-    return 0;
+    return Scheduler::blockThread(tid);
 }
 
 
@@ -81,7 +81,7 @@ int uthread_block(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_resume(int tid){
-    return 0;
+    return Scheduler::resumeThread(tid);
 }
 
 
@@ -153,9 +153,21 @@ void doNothing(){
     uthread_terminate(Scheduler::getRunning());
 }
 
+void loop(){
+    for(;;);
+//    uthread_terminate(Scheduler::getRunning());
+}
+
+
+
 int main(void)
 {
-    uthread_init(1000);
-    uthread_spawn(doNothing);
-    Scheduler::switchThreads();
+    uthread_init(1000000);
+    uthread_spawn(loop);
+    uthread_spawn(loop);
+    uthread_spawn(loop);
+    uthread_block(1);
+    uthread_resume(1);
+    for(;;);
+//    Scheduler::switchThreads();
 }

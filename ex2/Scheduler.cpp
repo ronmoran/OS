@@ -14,12 +14,14 @@
 #include <mutex>
 #include <algorithm>
 #include <signal.h>
+
 #define SECOND 1000000
 #define STACK_SIZE 4096
 #define MAIN_THREAD 0
 #define SUCCESS 0
 #define FAILURE -1
 #define MAIN_THREAD 0
+#define UNLOCKED -1
 #ifdef __x86_64__
 /* code for 64 bit Intel arch */
 #define JB_SP 6
@@ -28,8 +30,7 @@ typedef unsigned long address_t;
 
 /* A translation is required when using an address of a variable.
    Use this as a black box in your code. */
-address_t translate_address(address_t addr)
-{
+address_t translate_address(address_t addr) {
     address_t ret;
     asm volatile("xor    %%fs:0x30,%0\n"
                  "rol    $0x11,%0\n"
@@ -67,30 +68,27 @@ address_t translate_address(address_t addr)
 void timer_handler(int sig);
 
 
-class Thread
-{
+class Thread {
 private:
     int id;
     bool blocked;
     sigjmp_buf env;
     char *st;
+    int numQuantum;
+
 public:
-    Thread() : id(), blocked(), env(), st(nullptr)
-    {
+    Thread() : id(), blocked(), env(), st(nullptr) , numQuantum(0){
 
     };
 
     //Main thread ctor
-    Thread(int threadId) : id(threadId), blocked(false), st(nullptr), env()
-    {
+    Thread(int threadId) : id(threadId), blocked(false), st(nullptr), env(), numQuantum(1) {
         sigemptyset(&env->__saved_mask);
     }
 
-    explicit Thread(int threadId, void (*f)(void)) : id(threadId), blocked(false), env()
-    {
+    explicit Thread(int threadId, void (*f)(void)) : id(threadId), blocked(false), env(), numQuantum(0) {
         st = new(std::nothrow) char[STACK_SIZE];
-        if (!st)
-        {
+        if (!st) {
             std::cerr << "Alloc failed" << std::endl;
             exit(1);
         }
@@ -104,30 +102,24 @@ public:
         sigemptyset(&env->__saved_mask);
     }
 
-    ~Thread()
-    {
-        if (st != nullptr)
-        {
+    ~Thread() {
+        if (st != nullptr) {
             delete[] st;
         }
     }
 
-    Thread &operator=(const Thread &rhs)
-    {
-        if (&rhs == this)
-        {
+    Thread &operator=(const Thread &rhs) {
+        if (&rhs == this) {
             return *this;
         }
         id = rhs.id;
         blocked = rhs.blocked;
-        if (id == MAIN_THREAD)
-        {
+        if (id == MAIN_THREAD) {
             sigemptyset(&env->__saved_mask);
             return *this;
         }
         st = new(std::nothrow) char[STACK_SIZE]; //todo should copy stack content?
-        if (!st)
-        {
+        if (!st) {
             std::cerr << "Alloc failed" << std::endl;
             exit(1);
         }
@@ -141,42 +133,44 @@ public:
 
     }
 
-    void block()
-    {
+    int getNumQuantum() const {
+        return numQuantum;
+    }
+
+    void block() {
         blocked = true;
     }
 
-    void unblock()
-    {
+    void unblock() {
         blocked = false;
     }
 
-    bool isBlocked()
-    {
+    bool isBlocked() {
         return blocked;
     }
 
-    sigjmp_buf *getEnv()
-    {
+    sigjmp_buf *getEnv() {
         return &env;
     }
 
 
+    void incQuantum() {
+        numQuantum++;
+    }
 };
 
-class Scheduler
-{
+class Scheduler {
 private:
 
     static int running;
-    static unsigned int quantum;
+    static int quantum;
     static int threadId;
     static std::vector<int> ready;
     static std::unordered_map<int, Thread> threads;
     static struct sigaction sa;
     static struct itimerval timer;
-//    static std::mutex shared;
     static sigset_t set;
+    static int hasMutex;
 
     static void blockSignals();
 
@@ -185,15 +179,17 @@ private:
     static void removeFromReady(int tid);
 
     static void spawnMain();
+    
+
+
 
 
 public:
-    static void switchThreads(bool terminate);
 
-    static int getThreadCount()
-    {
+    static int getThreadCount() {
         return threads.size();
     }
+    static void switchThreads(bool terminate = false);
 
     static void initScheduler(int usecs);
 
@@ -204,9 +200,19 @@ public:
     static int blockThread(int threadId);
 
     static int getRunning();
+
+    static int resumeThread(int tid);
+
+    static int getQuantum();
+    
+    static int getThreadQuantum(int tid);
+    
+    static int mutexLock();
+
+    int mutexUnlock();
 };
 
-unsigned int Scheduler::quantum = 0;
+int Scheduler::quantum = 0;
 int Scheduler::running = 0;
 int Scheduler::threadId = 1;
 std::vector<int> Scheduler::ready = std::vector<int>();
@@ -215,23 +221,29 @@ std::unordered_map<int, Thread> Scheduler::threads = std::unordered_map<int, Thr
 sigset_t Scheduler::set = {};
 struct sigaction Scheduler::sa = {0};
 struct itimerval Scheduler::timer = {};
+int Scheduler::hasMutex = UNLOCKED;
 
-void Scheduler::initScheduler(int usecs)
-{
+void Scheduler::initScheduler(int usecs) {
     spawnMain();
-    Scheduler::quantum = usecs;
+    Scheduler::quantum = 1;
+    int sec = usecs / 1000000;
+    int usec = usecs % 1000000;
     Scheduler::running = MAIN_THREAD;
     sa.sa_handler = &timer_handler;
-    timer.it_value.tv_usec = usecs;
-    timer.it_interval.tv_usec = usecs;
-    if (setitimer (ITIMER_VIRTUAL, &timer, NULL)) {
+    timer.it_value.tv_usec = usec;
+    timer.it_value.tv_sec = sec;
+    timer.it_interval.tv_usec = usec;
+    timer.it_interval.tv_sec = sec;
+    if (setitimer(ITIMER_VIRTUAL, &timer, NULL)) {
         //todo change to cerr
         printf("setitimer error.");
     }
+    if (sigaction(SIGVTALRM, &sa, NULL) < 0) {
+        printf("sigaction error.");
+    }
 }
 
-int Scheduler::spawnThread(void (*f)(void))
-{
+int Scheduler::spawnThread(void (*f)(void)) {
     blockSignals();
     Thread t(Scheduler::threadId, f);
     Scheduler::threads[Scheduler::threadId] = t;
@@ -242,45 +254,36 @@ int Scheduler::spawnThread(void (*f)(void))
 }
 
 
-void Scheduler::spawnMain()
-{
+void Scheduler::spawnMain() {
     Scheduler::threads[MAIN_THREAD] = Thread(MAIN_THREAD);
 }
 
 
-void Scheduler::releaseSignals()
-{
+void Scheduler::releaseSignals() {
     sigprocmask(SIG_UNBLOCK, &set, nullptr);
 }
 
-void Scheduler::blockSignals()
-{
+void Scheduler::blockSignals() {
     sigemptyset(&set);
 //    sigfillset(&set);
     sigprocmask(SIG_BLOCK, &set, nullptr);
 }
 
 
-int Scheduler::terminateThread(int threadId)
-{
+int Scheduler::terminateThread(int threadId) {
     Scheduler::blockSignals();
-    if (threadId != 0)
-    {
-        if (Scheduler::threads.find(threadId) == Scheduler::threads.end())
-        {
+    if (threadId != 0) {
+        if (Scheduler::threads.find(threadId) == Scheduler::threads.end()) {
             releaseSignals();
             return FAILURE;
         }
-        if (Scheduler::running != threadId)
-        {
+        if (Scheduler::running != threadId) {
             Scheduler::threads.erase(threadId);
             Scheduler::removeFromReady(threadId);
-        } else
-        {
+        } else {
             Scheduler::switchThreads(true);
         }
-    } else
-    {
+    } else {
         Scheduler::threads.clear();
         exit(SUCCESS);
     }
@@ -288,71 +291,114 @@ int Scheduler::terminateThread(int threadId)
     return SUCCESS;
 }
 
-void Scheduler::removeFromReady(int tid)
-{
+void Scheduler::removeFromReady(int tid) {
     auto position = std::find(ready.begin(), ready.end(), tid);
-    if (position != ready.end())
-    {
+    if (position != ready.end()) {
         ready.erase(position);
     }
 }
 
-int Scheduler::blockThread(int tid)
-{
-    if (Scheduler::threads.find(tid) == Scheduler::threads.end() || tid == MAIN_THREAD)
-    {
-        return FAILURE;
-    }
-    blockSignals();
-    if (tid == running)
-    {
-        threads[tid].block();
-    } else
-    {
-        Scheduler::removeFromReady(threadId);
-        threads[tid].block();
-    }
-    releaseSignals();
-    return SUCCESS;
-}
-
-void Scheduler::switchThreads(bool terminate = false)
-{
+void Scheduler::switchThreads(bool terminate) {
     //todo empty queue
     blockSignals();
-    if (!threads[running].isBlocked())
-    {
+    if (!threads[running].isBlocked()) {
         ready.push_back(running);
     }
     int current = running;
     running = ready.front();
     ready.erase(ready.cbegin());
     int ret = 0;
-    if (!terminate)
-    {
+    if (!terminate) {
         ret = sigsetjmp(*threads[current].getEnv(), 1);
-    } else
-    {
+    } else {
         threads.erase(current);
     }
-    if (ret == 0)
-    {
+    if (ret == 0) {
         auto buf = threads[running].getEnv();
-        if (setitimer (ITIMER_VIRTUAL, &timer, NULL)) {
+        if (setitimer(ITIMER_VIRTUAL, &timer, NULL)) {
             printf("setitimer error.");
         }
+        quantum++;
+        threads[running].incQuantum();
         releaseSignals();
+        std::cout << "switch to thread " << running << std::endl;
+        std::cout.flush();
         siglongjmp(*buf, 1);
     }
     releaseSignals();
 }
 
-int Scheduler::getRunning()
-{
+int Scheduler::blockThread(int tid) {
+    if (Scheduler::threads.find(tid) == Scheduler::threads.end() || tid == MAIN_THREAD) {
+        return FAILURE;
+    }
+    blockSignals();
+    if (tid == running) {
+        threads[tid].block();
+        Scheduler::switchThreads();
+    } else {
+        Scheduler::removeFromReady(tid);
+        threads[tid].block();
+    }
+    releaseSignals();
+    return SUCCESS;
+}
+
+
+int Scheduler::getRunning() {
     return running;
 }
 
-void timer_handler(int sig)
-{
+void timer_handler(int sig) {
     Scheduler::switchThreads();
+}
+
+
+int Scheduler::resumeThread(int tid) {
+    Scheduler::blockSignals();
+    if (Scheduler::threads.find(tid) == Scheduler::threads.end()) {
+        releaseSignals();
+        return FAILURE;
+    }
+    threads[tid].unblock();
+    ready.push_back(tid);
+    releaseSignals();
+    return SUCCESS;
+}
+
+int Scheduler::getQuantum() {
+    return quantum;
+}
+
+int Scheduler::getThreadQuantum(int tid) {
+    Scheduler::blockSignals();
+    if (Scheduler::threads.find(tid) == Scheduler::threads.end()) {
+        releaseSignals();
+        return FAILURE;
+    }
+    int tmp = Scheduler::threads[tid].getNumQuantum();
+    releaseSignals();
+    return tmp;
+}
+
+int Scheduler::mutexLock() {
+    blockSignals();
+    if(hasMutex == running)
+    {
+        releaseSignals();
+        return FAILURE;
+    }
+    while(hasMutex != UNLOCKED)
+    {
+        blockThread(running); // signals are released here
+        blockSignals();
+    }
+    hasMutex = running;
+    releaseSignals();
+    return SUCCESS;
+}
+
+
+int Scheduler::mutexUnlock() {
+    
 }
