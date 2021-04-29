@@ -53,6 +53,7 @@ int uthread_spawn(void (*f)(void)){
  * thread is terminated, the function does not return.
 */
 int uthread_terminate(int tid){
+
     return Scheduler::terminateThread(tid);
 }
 
@@ -146,16 +147,15 @@ int uthread_get_quantums(int tid){
     return 0;
 }
 //todo remove
-void doNothing(){}
+void doNothing(){
+
+
+    uthread_terminate(Scheduler::getRunning());
+}
+
 int main(void)
 {
-    address_t pc = (address_t)doNothing;
-    std::cerr << translate_address(pc) << std::endl;
-    std::cerr.flush();
-    uthread_init(10);
-    uthread_spawn(doNothing);
-    uthread_spawn(doNothing);
+    uthread_init(1000);
     uthread_spawn(doNothing);
     Scheduler::switchThreads();
-    std::cout<<uthread_terminate(0);
 }
