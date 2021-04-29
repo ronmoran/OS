@@ -140,8 +140,8 @@ public:
         return blocked;
     }
 
-    auto getEnv() {
-        return env;
+    sigjmp_buf* getEnv() {
+        return &env;
     }
 
 
@@ -271,10 +271,10 @@ void Scheduler::switchThreads() {
     int current = running;
     running = ready.front();
     ready.erase(ready.cbegin());
-    int ret = sigsetjmp(threads[current].getEnv(), 1);
+    int ret = sigsetjmp(*threads[current].getEnv(), 1);
     if (ret == 0) {
         auto buf = threads[running].getEnv();
-        siglongjmp(buf, 1);
+        siglongjmp(*buf, 1);
     }
     releaseSignals();
 }
