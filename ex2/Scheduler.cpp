@@ -14,6 +14,7 @@
 #include <mutex>
 #include <algorithm>
 #include <signal.h>
+#include <queue>
 
 #define SECOND 1000000
 #define STACK_SIZE 4096
@@ -170,6 +171,7 @@ private:
     static struct sigaction sa;
     static struct itimerval timer;
     static sigset_t set;
+    static std::priority_queue<int> generateIds;
     static int hasMutex;
 
     static void blockSignals();
@@ -179,7 +181,9 @@ private:
     static void removeFromReady(int tid);
 
     static void spawnMain();
-    
+
+
+    static int getAvailableId();
 
 
 
@@ -204,9 +208,9 @@ public:
     static int resumeThread(int tid);
 
     static int getQuantum();
-    
+
     static int getThreadQuantum(int tid);
-    
+
     static int mutexLock();
 
     int mutexUnlock();
@@ -217,6 +221,7 @@ int Scheduler::running = 0;
 int Scheduler::threadId = 1;
 std::vector<int> Scheduler::ready = std::vector<int>();
 std::unordered_map<int, Thread> Scheduler::threads = std::unordered_map<int, Thread>();
+std::priority_queue<int> Scheduler::generateIds = std::priority_queue<int>();
 //std::mutex Scheduler::shared;
 sigset_t Scheduler::set = {};
 struct sigaction Scheduler::sa = {0};
@@ -398,7 +403,12 @@ int Scheduler::mutexLock() {
     return SUCCESS;
 }
 
+int Scheduler::getAvailableId()
+{
+    if ()
+}
+
 
 int Scheduler::mutexUnlock() {
-    
+
 }
