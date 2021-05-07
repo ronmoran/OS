@@ -171,7 +171,7 @@ private:
     static struct sigaction sa;
     static struct itimerval timer;
     static sigset_t set;
-    static std::priority_queue<int> generateIds;
+    static std::priority_queue<int, std::vector<int>, std::greater<>> generateIds;
     static int hasMutex;
 
     static void blockSignals();
@@ -181,9 +181,6 @@ private:
     static void removeFromReady(int tid);
 
     static void spawnMain();
-
-
-    static int getAvailableId();
 
 
 
@@ -214,6 +211,12 @@ public:
     static int mutexLock();
 
     int mutexUnlock();
+    static int getAvailableId();
+
+    static void recycleId(int id);
+
+
+
 };
 
 int Scheduler::quantum = 0;
@@ -221,7 +224,7 @@ int Scheduler::running = 0;
 int Scheduler::threadId = 1;
 std::vector<int> Scheduler::ready = std::vector<int>();
 std::unordered_map<int, Thread> Scheduler::threads = std::unordered_map<int, Thread>();
-std::priority_queue<int> Scheduler::generateIds = std::priority_queue<int>();
+std::priority_queue<int, std::vector<int>, std::greater<>> Scheduler::generateIds = std::priority_queue<int, std::vector<int>, std::greater<>>();
 //std::mutex Scheduler::shared;
 sigset_t Scheduler::set = {};
 struct sigaction Scheduler::sa = {0};
@@ -253,9 +256,9 @@ int Scheduler::spawnThread(void (*f)(void)) {
     Thread t(Scheduler::threadId, f);
     Scheduler::threads[Scheduler::threadId] = t;
     Scheduler::ready.push_back(threadId);
-    int tmp = Scheduler::threadId++;
+    int id = getAvailableId();
     releaseSignals();
-    return tmp;
+    return id;
 }
 
 
@@ -277,7 +280,7 @@ void Scheduler::blockSignals() {
 
 int Scheduler::terminateThread(int threadId) {
     Scheduler::blockSignals();
-    if (threadId != 0) {
+    if (threadId != MAIN_THREAD) {
         if (Scheduler::threads.find(threadId) == Scheduler::threads.end()) {
             releaseSignals();
             return FAILURE;
@@ -288,10 +291,12 @@ int Scheduler::terminateThread(int threadId) {
         } else {
             Scheduler::switchThreads(true);
         }
+        recycleId(threadId);
     } else {
         Scheduler::threads.clear();
         exit(SUCCESS);
     }
+
     releaseSignals();
     return SUCCESS;
 }
@@ -405,7 +410,19 @@ int Scheduler::mutexLock() {
 
 int Scheduler::getAvailableId()
 {
-    if ()
+    if (generateIds.empty()){
+        return threadId++;
+    }
+    else{
+        int id = generateIds.top();
+        generateIds.pop();
+        return id;
+    }
+}
+
+
+void Scheduler::recycleId(int id){
+    generateIds.push(id);
 }
 
 
