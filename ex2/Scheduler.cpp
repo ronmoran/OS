@@ -73,12 +73,12 @@ class Thread {
 private:
     int id;
     bool blocked;
-    sigjmp_buf env;
     char *st;
+    sigjmp_buf env;
     int numQuantum;
 
 public:
-    Thread() : id(), blocked(), env(), st(nullptr) , numQuantum(0){
+    Thread() : id(), blocked(), st(nullptr), env() , numQuantum(0){
 
     };
 
@@ -115,6 +115,7 @@ public:
         }
         id = rhs.id;
         blocked = rhs.blocked;
+        numQuantum = rhs.numQuantum;
         if (id == MAIN_THREAD) {
             sigemptyset(&env->__saved_mask);
             return *this;
@@ -124,7 +125,7 @@ public:
             std::cerr << "Alloc failed" << std::endl;
             exit(1);
         }
-        address_t sp, pc;
+        address_t sp;
         sp = (address_t) st + STACK_SIZE - sizeof(address_t);
         sigsetjmp(env, 1);
         (env->__jmpbuf)[JB_SP] = translate_address(sp); //todo std::copy for env?
@@ -171,7 +172,7 @@ private:
     static struct sigaction sa;
     static struct itimerval timer;
     static sigset_t set;
-    static std::priority_queue<int, std::vector<int>, std::greater<>> generateIds;
+    static std::priority_queue<int, std::vector<int>, std::greater<int>> generateIds;
     static int hasMutex;
 
     static void blockSignals();
@@ -224,10 +225,10 @@ int Scheduler::running = 0;
 int Scheduler::threadId = 1;
 std::vector<int> Scheduler::ready = std::vector<int>();
 std::unordered_map<int, Thread> Scheduler::threads = std::unordered_map<int, Thread>();
-std::priority_queue<int, std::vector<int>, std::greater<>> Scheduler::generateIds = std::priority_queue<int, std::vector<int>, std::greater<>>();
+std::priority_queue<int, std::vector<int>, std::greater<int>> Scheduler::generateIds = std::priority_queue<int, std::vector<int>, std::greater<int>>();
 //std::mutex Scheduler::shared;
 sigset_t Scheduler::set = {};
-struct sigaction Scheduler::sa = {0};
+struct sigaction Scheduler::sa = {};
 struct itimerval Scheduler::timer = {};
 int Scheduler::hasMutex = UNLOCKED;
 
@@ -311,7 +312,8 @@ void Scheduler::removeFromReady(int tid) {
 void Scheduler::switchThreads(bool terminate) {
     //todo empty queue
     blockSignals();
-    if (!threads[running].isBlocked()) {
+    Thread &runningThread = threads[running];
+    if (!runningThread.isBlocked() && !terminate) {
         ready.push_back(running);
     }
     int current = running;
@@ -319,20 +321,21 @@ void Scheduler::switchThreads(bool terminate) {
     ready.erase(ready.cbegin());
     int ret = 0;
     if (!terminate) {
-        ret = sigsetjmp(*threads[current].getEnv(), 1);
+        Thread &thread = threads[current];
+        ret = sigsetjmp(*thread.getEnv(), 1);
     } else {
         threads.erase(current);
     }
     if (ret == 0) {
-        auto buf = threads[running].getEnv();
+        Thread &jump = threads[running];
+        auto buf = jump.getEnv();
         if (setitimer(ITIMER_VIRTUAL, &timer, NULL)) {
             printf("setitimer error.");
         }
         quantum++;
-        threads[running].incQuantum();
+        jump.incQuantum();
         releaseSignals();
-        std::cout << "switch to thread " << running << std::endl;
-        std::cout.flush();
+        std::cout << "swithcing to thread " << running << std::endl;
         siglongjmp(*buf, 1);
     }
     releaseSignals();
@@ -386,7 +389,9 @@ int Scheduler::getThreadQuantum(int tid) {
         releaseSignals();
         return FAILURE;
     }
-    int tmp = Scheduler::threads[tid].getNumQuantum();
+    Thread &thread = Scheduler::threads[tid];
+
+    int tmp = thread.getNumQuantum();
     releaseSignals();
     return tmp;
 }
@@ -427,5 +432,5 @@ void Scheduler::recycleId(int id){
 
 
 int Scheduler::mutexUnlock() {
-
+    return FAILURE; //todo
 }

@@ -13,6 +13,7 @@
 */
 int uthread_init(int quantum_usecs){
     if (quantum_usecs <= 0){
+        std::cerr << "thread library error: "; //todo indicative message
         return FAILURE; //todo print print error
     }
     Scheduler::initScheduler(quantum_usecs);
@@ -34,7 +35,8 @@ int uthread_init(int quantum_usecs){
 */
 int uthread_spawn(void (*f)(void)){
     if(Scheduler::getThreadCount() >= MAX_THREAD_NUM) {
-        return FAILURE; //todo message
+        std::cerr << "thread library error: "; //todo indicative message
+        return FAILURE;
     }
     return Scheduler::spawnThread(f);
 }
@@ -53,8 +55,11 @@ int uthread_spawn(void (*f)(void)){
  * thread is terminated, the function does not return.
 */
 int uthread_terminate(int tid){
-
-    return Scheduler::terminateThread(tid);
+    int val = Scheduler::terminateThread(tid);
+    if (val==FAILURE) {
+        std::cerr << "thread library error: "; //todo indicative message
+    }
+    return val;
 }
 
 
@@ -69,7 +74,11 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-    return Scheduler::blockThread(tid);
+    int val = Scheduler::blockThread(tid);
+    if(val ==FAILURE) {
+        std::cerr << "thread library error: "; //todo indicative message
+    }
+    return val;
 }
 
 
@@ -81,7 +90,12 @@ int uthread_block(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_resume(int tid){
-    return Scheduler::resumeThread(tid);
+    int val = Scheduler::resumeThread(tid);
+    if(val==FAILURE)
+    {
+        std::cerr << "thread library error: "; //todo indicative message
+    }
+    return val;
 }
 
 
@@ -116,7 +130,7 @@ int uthread_mutex_unlock(){
  * Return value: The ID of the calling thread.
 */
 int uthread_get_tid(){
-    return 0;
+    return Scheduler::getRunning();
 }
 
 
@@ -129,7 +143,7 @@ int uthread_get_tid(){
  * Return value: The total number of quantums.
 */
 int uthread_get_total_quantums(){
-    return 0;
+    return Scheduler::getQuantum();
 }
 
 
@@ -144,7 +158,12 @@ int uthread_get_total_quantums(){
  * 			     On failure, return -1.
 */
 int uthread_get_quantums(int tid){
-    return 0;
+    int val= Scheduler::getThreadQuantum(tid);
+    if(val==FAILURE)
+    {
+        std::cerr << "thread library error: "; //todo indicative message
+    }
+    return val;
 }
 //todo remove
 void doNothing(){
@@ -160,14 +179,14 @@ void loop(){
 
 
 
-int main(void)
-{
-    uthread_init(1000000);
-    uthread_spawn(loop);
-    uthread_spawn(loop);
-    uthread_spawn(loop);
-    uthread_block(1);
-    uthread_resume(1);
-    for(;;);
+//int main(void)
+//{
+//    uthread_init(1000000);
+//    uthread_spawn(loop);
+//    uthread_spawn(loop);
+//    uthread_spawn(loop);
+//    uthread_block(1);
+//    uthread_resume(1);
+//    for(;;);
 //    Scheduler::switchThreads();
-}
+//}
