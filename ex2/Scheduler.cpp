@@ -17,7 +17,6 @@
 #include <queue>
 
 #define SECOND 1000000
-#define STACK_SIZE 4096
 #define MAIN_THREAD 0
 #define SUCCESS 0
 #define FAILURE -1
@@ -147,7 +146,7 @@ public:
         blocked = false;
     }
 
-    bool isBlocked() {
+    bool isBlocked() const{
         return blocked;
     }
 
@@ -323,19 +322,20 @@ void Scheduler::switchThreads(bool terminate) {
     if (!terminate) {
         Thread &thread = threads[current];
         ret = sigsetjmp(*thread.getEnv(), 1);
-    } else {
-        threads.erase(current);
     }
     if (ret == 0) {
         Thread &jump = threads[running];
         auto buf = jump.getEnv();
+        quantum++;
+        jump.incQuantum();
+        if(terminate)
+        {
+            threads.erase(current);
+        }
         if (setitimer(ITIMER_VIRTUAL, &timer, NULL)) {
             printf("setitimer error.");
         }
-        quantum++;
-        jump.incQuantum();
-        releaseSignals();
-        std::cout << "swithcing to thread " << running << std::endl;
+        releaseSignals(); //todo really after setitimer?
         siglongjmp(*buf, 1);
     }
     releaseSignals();
@@ -362,7 +362,7 @@ int Scheduler::getRunning() {
     return running;
 }
 
-void timer_handler(int sig) {
+void timer_handler(int) {
     Scheduler::switchThreads();
 }
 
