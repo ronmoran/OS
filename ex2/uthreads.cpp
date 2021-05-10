@@ -74,7 +74,7 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-    int val = Scheduler::blockThread(tid);
+    int val = Scheduler::blockThread(tid, false);
     if(val ==FAILURE) {
         std::cerr << "thread library error: "; //todo indicative message
     }
@@ -109,7 +109,12 @@ int uthread_resume(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_mutex_lock(){
-    return 0;
+    int val = Scheduler::mutexLock();
+    if(val==FAILURE)
+    {
+        std::cerr << "thread library error: "; //todo indicative message
+    }
+    return val;
 }
 
 
@@ -121,7 +126,12 @@ int uthread_mutex_lock(){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_mutex_unlock(){
-    return 0;
+    int val = Scheduler::mutexUnlock();
+    if(val==FAILURE)
+    {
+        std::cerr << "thread library error: "; //todo indicative message
+    }
+    return val;
 }
 
 
@@ -181,12 +191,12 @@ void loop(){
 
 //int main(void)
 //{
-//    uthread_init(1000000);
+//    uthread_init(100000);
 //    uthread_spawn(loop);
 //    uthread_spawn(loop);
 //    uthread_spawn(loop);
 //    uthread_block(1);
 //    uthread_resume(1);
-//    for(;;);
-//    Scheduler::switchThreads();
+//    for(int i = 0; i < 10e5; i++);
+//    uthread_terminate(0);
 //}
