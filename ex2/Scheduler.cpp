@@ -196,6 +196,7 @@ private:
     static sigset_t set;
     static std::priority_queue<int, std::vector<int>, std::greater<int>> generateIds;
     static int mutexOwner;
+    static std::vector<int> mutexWait;
 
     static void blockSignals();
 
@@ -248,6 +249,7 @@ int Scheduler::quantum = 0;
 int Scheduler::running = 0;
 int Scheduler::threadId = 1;
 std::vector<int> Scheduler::ready = std::vector<int>();
+std::vector<int> Scheduler::mutexWait = std::vector<int>();
 std::unordered_map<int, Thread> Scheduler::threads = std::unordered_map<int, Thread>();
 std::priority_queue<int, std::vector<int>, std::greater<int>> Scheduler::generateIds = std::priority_queue<int, std::vector<int>, std::greater<int>>();
 //std::mutex Scheduler::shared;
@@ -305,6 +307,10 @@ void Scheduler::blockSignals() {
 
 int Scheduler::terminateThread(int threadId) {
     Scheduler::blockSignals();
+    if(mutexOwner == running)
+    {
+        mutexUnlock();
+    }
     if (threadId != MAIN_THREAD) {
         if (Scheduler::threads.find(threadId) == Scheduler::threads.end()) {
             releaseSignals();
@@ -462,6 +468,7 @@ int Scheduler::mutexLock() {
     }
     while(mutexOwner != UNLOCKED)
     {
+        mutexWait.push_back(running);
         blockThread(running, true); // signals are released here
         blockSignals();
     }
@@ -490,7 +497,7 @@ void Scheduler::recycleId(int id){
 
 int Scheduler::mutexUnlock() {
     blockSignals();
-    if (mutexOwner == UNLOCKED)
+    if (mutexOwner == UNLOCKED || mutexOwner != running)
     {
         releaseSignals();
         return FAILURE; //todo print error
