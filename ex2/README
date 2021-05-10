@@ -1,0 +1,39 @@
+ronmoran, noimimran
+Ron Moran (206170920), Noi Maymaran (208550400)
+
+FILES:
+- uthreads.cpp
+- Scheduler.cpp
+
+REMARKS:
+
+ANSWERS:
+
+Q1:
+General use of user level threads -  For queued tasks: we would like to have the shorter tasks running without waiting
+for the longer-running ones.
+Example: We are trying to run a complicated, long calculation that would take a few hours at least.
+On the other hand, the same provider have a lot of shorter tasks waiting for the long one to finish.
+Instead of waiting, we can switch to handle them simultaneously (not in a parallel manner though) and have the shorter
+tasks finished earlier.
+The use of user level threads provides lower overhead (in terms of context switching) than kernel level threads in this
+context.
+
+Q2:
+Disadvantages (using multiprocessing):
+1. Higher overhead when switching between the processes
+2. If an object between tabs needs to be shared, it requires the OS for communication.
+
+Advantages (using multiprocessing):
+1. Memory is not shared so objects in one tab are not readable to other tabs(processes).
+
+Q3:
+An interrupt signal, "SIGINT" is sent when we hit the "enter" key after writing "kill <pid>"" in the console.
+Following, (more than) a few SIGTRAP which runs OS methods, and last SIGTERM is sent to the process which we want to
+kill. SIGTERM is sent by the OS to the program which handles it if a non-default behaviour was predefined using
+"sigaction".
+
+Q4:
+Real time is a global counter of time units, not depending on a particular thread or process.
+The counter keeps counting even if a process/thread is preempted.
+Virtual time counts the execution time of each process individually. When it sleeps the counter does not increment.

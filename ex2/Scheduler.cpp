@@ -2,7 +2,6 @@
 // Created by user on 24/04/2021.
 //
 //todo remove
-#include <utility>
 #include <stdio.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -10,12 +9,9 @@
 #include <sys/time.h>
 #include <queue>
 #include <unordered_map>
-#include <forward_list>
 #include <iostream>
-#include <mutex>
 #include <algorithm>
-#include <signal.h>
-#include <queue>
+#include "uthreads.h"
 
 #define SECOND 1000000
 #define MAIN_THREAD 0
@@ -61,11 +57,6 @@ address_t translate_address(address_t addr)
 
 #endif
 
-
-#include <stdio.h>
-#include <signal.h>
-#include <sys/time.h>
-
 void timer_handler(int sig);
 
 
@@ -91,7 +82,7 @@ public:
     explicit Thread(int threadId, void (*f)(void)) : id(threadId), blocked(), mutexLocked(), env(), numQuantum(0) {
         st = new(std::nothrow) char[STACK_SIZE]();
         if (!st) {
-            std::cerr << "Alloc failed" << std::endl;
+            std::cerr << "system error: Alloc failed" << std::endl;
             exit(1);
         }
         address_t sp, pc;
