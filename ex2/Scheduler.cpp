@@ -300,7 +300,7 @@ void Scheduler::releaseSignals() {
 
 void Scheduler::blockSignals() {
     sigemptyset(&set);
-    sigfillset(&set);
+    sigaddset(&set, SIGVTALRM);
     sigprocmask(SIG_BLOCK, &set, nullptr);
 }
 
@@ -508,14 +508,21 @@ int Scheduler::mutexUnlock() {
 //    ;});
 //    (tid -> second).mutexUnlock();
 //    addToReady(tid -> first);
-    for (auto &i: threads){
-        Thread &t = i.second;
-        if (t.isMutexLocked())
-        {
-            t.mutexUnlock();
-            addToReady(i.first);
-            break;
-        }
+//    for (auto &i: threads){
+//        Thread &t = i.second;
+//        if (t.isMutexLocked())
+//        {
+//            t.mutexUnlock();
+//            addToReady(i.first);
+//            break;
+//        }
+//    }
+    if (!mutexWait.empty())
+    {
+        int tid = mutexWait.front();
+        threads[tid].mutexUnlock();
+        addToReady(tid);
+        mutexWait.erase(mutexWait.cbegin());
     }
     releaseSignals();
     return SUCCESS;
