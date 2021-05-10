@@ -253,10 +253,10 @@ void Scheduler::initScheduler(int usecs) {
 
 int Scheduler::spawnThread(void (*f)(void)) {
     blockSignals();
-    Thread t(Scheduler::threadId, f);
-    Scheduler::threads[Scheduler::threadId] = t;
-    Scheduler::ready.push_back(threadId);
     int id = getAvailableId();
+    Thread t(id, f);
+    Scheduler::threads[id] = t;
+    Scheduler::ready.push_back(id);
     releaseSignals();
     return id;
 }
@@ -273,7 +273,7 @@ void Scheduler::releaseSignals() {
 
 void Scheduler::blockSignals() {
     sigemptyset(&set);
-//    sigfillset(&set);
+    sigfillset(&set);
     sigprocmask(SIG_BLOCK, &set, nullptr);
 }
 
@@ -288,10 +288,11 @@ int Scheduler::terminateThread(int threadId) {
         if (Scheduler::running != threadId) {
             Scheduler::threads.erase(threadId);
             Scheduler::removeFromReady(threadId);
+            recycleId(threadId);
         } else {
+            recycleId(threadId);
             Scheduler::switchThreads(true);
         }
-        recycleId(threadId);
     } else {
         Scheduler::threads.clear();
         exit(SUCCESS);
@@ -311,7 +312,7 @@ void Scheduler::removeFromReady(int tid) {
 void Scheduler::switchThreads(bool terminate) {
     //todo empty queue
     blockSignals();
-    Thread &runningThread = threads[running];
+    const Thread &runningThread = threads[running];
     if (!runningThread.isBlocked() && !terminate) {
         ready.push_back(running);
     }
@@ -373,8 +374,13 @@ int Scheduler::resumeThread(int tid) {
         releaseSignals();
         return FAILURE;
     }
-    threads[tid].unblock();
-    ready.push_back(tid);
+    Thread &thread = threads[tid];
+    if(thread.isBlocked())
+    {
+
+        thread.unblock();
+        ready.push_back(tid);
+    }
     releaseSignals();
     return SUCCESS;
 }
@@ -389,7 +395,7 @@ int Scheduler::getThreadQuantum(int tid) {
         releaseSignals();
         return FAILURE;
     }
-    Thread &thread = Scheduler::threads[tid];
+    const Thread &thread = Scheduler::threads[tid];
 
     int tmp = thread.getNumQuantum();
     releaseSignals();
