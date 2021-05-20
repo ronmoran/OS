@@ -24,7 +24,7 @@ $(TARGETS): $(LIBOBJ)
 	$(RANLIB) $@
 
 clean:
-	$(RM) $(TARGETS) $(UTHREADSLIB) $(OBJ) $(LIBOBJ) *~ *core
+	$(RM) $(UTHREADSLIB) $(OBJ) $(LIBOBJ) *~ *core
 
 depend:
 	makedepend -- $(CFLAGS) -- $(SRC) $(LIBSRC)
