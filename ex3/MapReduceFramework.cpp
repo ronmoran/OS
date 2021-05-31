@@ -63,30 +63,34 @@ private:
         }
         std::sort(tc->intermediate.begin(), tc->intermediate.end(), weak_order); //no race condition problem
         j->barrier.barrier();
+        unsigned long numPairs = tc->jobContext->threads->intermediate.size();
+        IntermediateVec* intermediateVectors = new IntermediateVec[numPairs];
         if (tc -> threadID != 0)
         {
+            std::cout<<"waiting: "<<tc->threadID<<std::endl;
             sem_wait(&j->shuffleSem); //stop all threads but the shuffling thread (zero)
         }
         else
         {
+
+            std::cout<<"shuffling: "<<tc->threadID<<std::endl;
             updatePhase(&(j->stage), SHUFFLE_STAGE);
             //todo shuffle
-            bool isEmpty = false;
-            unsigned long numPairs = tc->jobContext->threads->intermediate.size();
-            IntermediateVec* intermediateVectors = new IntermediateVec[numPairs];
-            while(!isEmpty)
+            int isEmpty = 0;
+            while(isEmpty <= tc->multiThreadLevel)
             {
                 IntermediateVec newAssignment;
                 for(int k = 0; k < tc->multiThreadLevel; k++)
                 {
-                    auto currThreadIntermediate = tc->jobContext->threads[k].intermediate;
-                    if (currThreadIntermediate.empty()){
-                        isEmpty = true;
-                        break;
+                    if (tc->jobContext->threads[k].intermediate.empty()){
+                        isEmpty +=1;
                     }
-                    IntermediatePair topPair = currThreadIntermediate.back();
-                    newAssignment.push_back(topPair);
-                    currThreadIntermediate.pop_back();
+                    else
+                    {
+                        IntermediatePair topPair = tc->jobContext->threads[k].intermediate.back();
+                        newAssignment.push_back(topPair);
+                        tc->jobContext->threads[k].intermediate.pop_back();
+                    }
                 }
                 intermediateVectors[numPairs-tc->jobContext->threads->intermediate.size()] = newAssignment;
             }
@@ -143,7 +147,6 @@ void emit2 (K2* key, V2* value, void* context){
 
     auto *tc = static_cast<ThreadContext*>(context);
     tc->intermediate.push_back(IntermediatePair(key, value));
-    std::cout<<1;
     //todo increment intermid counter
     return;
 }
