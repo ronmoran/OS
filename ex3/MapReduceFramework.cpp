@@ -20,6 +20,12 @@ bool weak_order(const IntermediatePair &pair1, const IntermediatePair &pair2)
 }
 
 
+bool order_vec(const IntermediateVec &v1, const IntermediateVec &v2)
+{
+    return weak_order(v1.back(), v2.back());
+}
+
+
 
 
 
@@ -38,7 +44,7 @@ struct ThreadContext
     IntermediateVec intermediate; //each thread's intermediate vector
     uint32_t threadID;
     JobContext* jobContext; //holds all other refrences
-    int multiThreadLevel;
+
 };
 class JobContext {
 private:
@@ -50,21 +56,28 @@ private:
     std::atomic<UINT64> stage;
     Barrier barrier;
     sem_t shuffleSem;
+    int multiThreadLevel;
 
     static void* runThread(void* thisObj)
     {
         auto *tc = static_cast<ThreadContext*>(thisObj);
         JobContext *j = tc->jobContext;
         updatePhase(&(j->stage), MAP_STAGE);
-        while(auto counter = j->stage++ < j->input.size()) //atomically increase an index and get its previous value
+        std::atomic<int> i;
+//        while(auto counter = j->stage++ < j->input.size()) //atomically increase an index and get its previous value
+        while(i < j->input.size()) //atomically increase an index and get its previous value
         {
-            auto item = j ->input[counter];
+//            auto item = j ->input[counter];
+            auto item = j ->input[i];
+            std::cout<<"item: "<<item.second<<std::endl;
             j->client.map(item.first, item.second, (void*)tc);
+            i++;
         }
         std::sort(tc->intermediate.begin(), tc->intermediate.end(), weak_order); //no race condition problem
         j->barrier.barrier();
-        unsigned long numPairs = tc->jobContext->threads->intermediate.size();
-        IntermediateVec* intermediateVectors = new IntermediateVec[numPairs];
+        std::vector<IntermediateVec> queue;
+        IntermediateVec prev;
+
         if (tc -> threadID != 0)
         {
             std::cout<<"waiting: "<<tc->threadID<<std::endl;
@@ -77,23 +90,34 @@ private:
             updatePhase(&(j->stage), SHUFFLE_STAGE);
             //todo shuffle
             int isEmpty = 0;
-            while(isEmpty <= tc->multiThreadLevel)
+//            while(isEmpty <= tc->multiThreadLevel)
+//            {
+//                IntermediatePair currPair;
+//                IntermediateVec newAssignment;
+//                for(int k = 0; k < tc->multiThreadLevel; k++)
+//                {
+//                    if (tc->jobContext->threads[k].intermediate.empty()){
+//                        isEmpty +=1;
+//                    }
+//                    else
+//                    {
+//                        IntermediatePair topPair = tc->jobContext->threads[k].intermediate.back();
+//                        newAssignment.push_back(topPair);
+//                        tc->jobContext->threads[k].intermediate.pop_back();
+//                    }
+//                }
+//                queue.push_back(newAssignment);
+//            }
+
+            for(int k = 0; k < tc->jobContext->multiThreadLevel; k++)
             {
-                IntermediateVec newAssignment;
-                for(int k = 0; k < tc->multiThreadLevel; k++)
-                {
-                    if (tc->jobContext->threads[k].intermediate.empty()){
-                        isEmpty +=1;
-                    }
-                    else
-                    {
-                        IntermediatePair topPair = tc->jobContext->threads[k].intermediate.back();
-                        newAssignment.push_back(topPair);
-                        tc->jobContext->threads[k].intermediate.pop_back();
-                    }
-                }
-                intermediateVectors[numPairs-tc->jobContext->threads->intermediate.size()] = newAssignment;
+                IntermediateVec dest;
+                std::merge(prev.begin(),prev.end(), tc->jobContext->threads[k].intermediate.begin(),
+                           tc->jobContext->threads[k].intermediate.end(), std::back_inserter(dest), weak_order);
+                prev = dest;
+
             }
+            std::cout<<1;
         }
         sem_post(&j->shuffleSem);
         //todo reduce
@@ -108,15 +132,19 @@ public:
                ,barrier(multiThreadLevel)
     {
         threads = new ThreadContext[multiThreadLevel];
-        threads->multiThreadLevel = multiThreadLevel;
+        this->multiThreadLevel = multiThreadLevel;
         sem_init(&shuffleSem, 0, 0);
         for(uint32_t i = 0; i < multiThreadLevel; i++)
         {
-            threads[i].threadID = i;
-            threads[i].jobContext = this;
+
+            ThreadContext* currThreadContext = new ThreadContext;
+            currThreadContext->threadID = i;
+            currThreadContext->jobContext = this;
+            currThreadContext->intermediate = *new IntermediateVec;
             pthread_t threadId;
+            threads[i] = *currThreadContext;
 //            pthread_create(threads[i].thread, nullptr, &JobContext::runThread, static_cast<void*>(threads + i));
-            pthread_create(&threadId, nullptr, &JobContext::runThread, static_cast<void*>(threads + i));
+            pthread_create(&threadId, nullptr, &JobContext::runThread, (threads + i));
         }
     }
     ~JobContext()
