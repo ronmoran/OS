@@ -16,7 +16,7 @@ typedef uint64_t UINT64;
 class JobContext;
 bool weak_order(const IntermediatePair &pair1, const IntermediatePair &pair2)
 {
-    return pair1.first < pair2.first;
+    return *pair1.first < *pair2.first;
 }
 
 
@@ -51,9 +51,11 @@ private:
     ThreadContext *threads;
     const MapReduceClient& client;
     const InputVec& input;
-    OutputVec& output; //todo use
+//    OutputVec& output; //todo use
     // 2 MSB is stage_t (map, shuffle, undefined...) 31 LSB are the counter
-    std::atomic<UINT64> stage;
+    std::atomic<uint64_t> stage;
+    std::atomic<uint64_t> counter;
+    std::atomic<uint64_t> counterReduce;
     Barrier barrier;
     sem_t shuffleSem;
     int multiThreadLevel;
@@ -63,15 +65,12 @@ private:
         auto *tc = static_cast<ThreadContext*>(thisObj);
         JobContext *j = tc->jobContext;
         updatePhase(&(j->stage), MAP_STAGE);
-        std::atomic<int> i;
-//        while(auto counter = j->stage++ < j->input.size()) //atomically increase an index and get its previous value
-        while(i < j->input.size()) //atomically increase an index and get its previous value
+        int i = j->counter++;
+        while(i< j->input.size()) //atomically increase an index and get its previous value
         {
-//            auto item = j ->input[counter];
             auto item = j ->input[i];
-            std::cout<<"item: "<<item.second<<std::endl;
             j->client.map(item.first, item.second, (void*)tc);
-            i++;
+            i = j->counter++;
         }
         std::sort(tc->intermediate.begin(), tc->intermediate.end(), weak_order); //no race condition problem
         j->barrier.barrier();
@@ -80,35 +79,12 @@ private:
 
         if (tc -> threadID != 0)
         {
-            std::cout<<"waiting: "<<tc->threadID<<std::endl;
             sem_wait(&j->shuffleSem); //stop all threads but the shuffling thread (zero)
         }
         else
         {
-
-            std::cout<<"shuffling: "<<tc->threadID<<std::endl;
             updatePhase(&(j->stage), SHUFFLE_STAGE);
             //todo shuffle
-            int isEmpty = 0;
-//            while(isEmpty <= tc->multiThreadLevel)
-//            {
-//                IntermediatePair currPair;
-//                IntermediateVec newAssignment;
-//                for(int k = 0; k < tc->multiThreadLevel; k++)
-//                {
-//                    if (tc->jobContext->threads[k].intermediate.empty()){
-//                        isEmpty +=1;
-//                    }
-//                    else
-//                    {
-//                        IntermediatePair topPair = tc->jobContext->threads[k].intermediate.back();
-//                        newAssignment.push_back(topPair);
-//                        tc->jobContext->threads[k].intermediate.pop_back();
-//                    }
-//                }
-//                queue.push_back(newAssignment);
-//            }
-
             for(int k = 0; k < tc->jobContext->multiThreadLevel; k++)
             {
                 IntermediateVec dest;
@@ -117,15 +93,37 @@ private:
                 prev = dest;
 
             }
-            std::cout<<1;
+            IntermediateVec matchingPairs;
+            IntermediatePair currPair = prev.front();
+            for(IntermediatePair pair:prev){
+                if(!(*pair.first < *currPair.first) && !(*currPair.first < *pair.first)){
+                    matchingPairs.push_back(pair);
+                } else{
+                    queue.push_back(matchingPairs);
+                    matchingPairs.clear();
+                    currPair = pair;
+                    matchingPairs.push_back(pair);
+                }
+            }
+            queue.push_back(matchingPairs);
         }
         sem_post(&j->shuffleSem);
+
+        updatePhase(&(j->stage), REDUCE_STAGE);
+        int k = j->counterReduce++;
+        while(k< queue.size()) //atomically increase an index and get its previous value
+        {
+            const IntermediateVec* item = &queue[i];
+            j->client.reduce(item, tc);
+            k = j->counterReduce++;
+        }
         //todo reduce
         return nullptr;
     }
 
 
 public:
+    OutputVec& output; //todo use
     JobContext(const MapReduceClient& client,
                const InputVec& inputVec, OutputVec& outputVec,
                int multiThreadLevel): client(client), input(inputVec), output(outputVec), stage(UNDEFINED_STAGE)
@@ -136,7 +134,6 @@ public:
         sem_init(&shuffleSem, 0, 0);
         for(uint32_t i = 0; i < multiThreadLevel; i++)
         {
-
             ThreadContext* currThreadContext = new ThreadContext;
             currThreadContext->threadID = i;
             currThreadContext->jobContext = this;
@@ -179,6 +176,9 @@ void emit2 (K2* key, V2* value, void* context){
     return;
 }
 void emit3 (K3* key, V3* value, void* context){
+    auto *tc = static_cast<ThreadContext*>(context);
+    tc->jobContext->output.push_back(OutputPair(key, value));
+    //todo increment counter
     return;
 }
 void waitForJob(JobHandle job){
@@ -191,3 +191,22 @@ void closeJobHandle(JobHandle job){
 
 }
 
+//int isEmpty = 0;
+//            while(isEmpty <= tc->multiThreadLevel)
+//            {
+//                IntermediatePair currPair;
+//                IntermediateVec newAssignment;
+//                for(int k = 0; k < tc->multiThreadLevel; k++)
+//                {
+//                    if (tc->jobContext->threads[k].intermediate.empty()){
+//                        isEmpty +=1;
+//                    }
+//                    else
+//                    {
+//                        IntermediatePair topPair = tc->jobContext->threads[k].intermediate.back();
+//                        newAssignment.push_back(topPair);
+//                        tc->jobContext->threads[k].intermediate.pop_back();
+//                    }
+//                }
+//                queue.push_back(newAssignment);
+//            }

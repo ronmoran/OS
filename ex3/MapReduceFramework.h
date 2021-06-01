@@ -23,8 +23,8 @@ void waitForJob(JobHandle job);
 void getJobState(JobHandle job, JobState* state);
 void closeJobHandle(JobHandle job);
 //todo move to cpp file
-struct ThreadContext;
-class JobContext;
+//struct ThreadContext;
+//class JobContext;
 	
 	
 #endif //MAPREDUCEFRAMEWORK_H
