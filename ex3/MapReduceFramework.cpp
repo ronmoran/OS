@@ -25,6 +25,24 @@ bool order_vec(const IntermediateVec &v1, const IntermediateVec &v2)
     return weak_order(v1.back(), v2.back());
 }
 
+int getStage(uint64_t atomic){
+    uint64_t mask = -1ULL-((1ULL<<62)-1ULL);
+    return (int) ((atomic & mask)>>62);
+
+}
+int getAll(uint64_t atomic){
+    uint64_t mask = (1ULL<<62)-1ULL-((1ULL<<31)-1ULL);
+    return (int) ((atomic & mask)>>31);
+}
+
+int getCounter(uint64_t atomic){
+    uint64_t mask = (1ULL<<31)-1ULL;
+    return (int) atomic & mask;
+}
+int resetCounter(uint64_t atomic){
+//    int stage = getStage(atomic);
+//    return (stage*())
+}
 
 
 
@@ -53,9 +71,9 @@ private:
     const InputVec& input;
 //    OutputVec& output; //todo use
     // 2 MSB is stage_t (map, shuffle, undefined...) 31 LSB are the counter
-    std::atomic<uint64_t> stage;
+//    std::atomic<uint64_t> atomic;
     std::atomic<uint64_t> counter;
-    std::atomic<uint64_t> counterReduce;
+//    std::atomic<uint64_t> counterReduce;
     Barrier barrier;
     sem_t shuffleSem;
     int multiThreadLevel;
@@ -64,7 +82,7 @@ private:
     {
         auto *tc = static_cast<ThreadContext*>(thisObj);
         JobContext *j = tc->jobContext;
-        updatePhase(&(j->stage), MAP_STAGE);
+//        updatePhase(&(j->stage), MAP_STAGE);
         int i = j->counter++;
         while(i< j->input.size()) //atomically increase an index and get its previous value
         {
@@ -83,7 +101,7 @@ private:
         }
         else
         {
-            updatePhase(&(j->stage), SHUFFLE_STAGE);
+//            updatePhase(&(j->stage), SHUFFLE_STAGE);
             //todo shuffle
             for(int k = 0; k < tc->jobContext->multiThreadLevel; k++)
             {
@@ -107,18 +125,19 @@ private:
             }
             queue.push_back(matchingPairs);
         }
+        //updatePhase(&(j->stage), REDUCE_STAGE);
+        //todo reset
+        j->counter = 0;
         sem_post(&j->shuffleSem);
-
-        updatePhase(&(j->stage), REDUCE_STAGE);
-        int k = j->counterReduce++;
+        int k = j->counter++;
         while(k< queue.size()) //atomically increase an index and get its previous value
         {
-            const IntermediateVec* item = &queue[i];
+            std::cout<<k<<std::endl;
+            const IntermediateVec* item = &queue[k];
             j->client.reduce(item, tc);
-            k = j->counterReduce++;
+            k = j->counter++;
         }
-        //todo reduce
-        return nullptr;
+        return 0;
     }
 
 
@@ -126,8 +145,8 @@ public:
     OutputVec& output; //todo use
     JobContext(const MapReduceClient& client,
                const InputVec& inputVec, OutputVec& outputVec,
-               int multiThreadLevel): client(client), input(inputVec), output(outputVec), stage(UNDEFINED_STAGE)
-               ,barrier(multiThreadLevel)
+               int multiThreadLevel): client(client), input(inputVec), output(outputVec)
+            ,barrier(multiThreadLevel)
     {
         threads = new ThreadContext[multiThreadLevel];
         this->multiThreadLevel = multiThreadLevel;
@@ -156,7 +175,7 @@ JobHandle startMapReduceJob(const MapReduceClient& client,
                             const InputVec& inputVec, OutputVec& outputVec,
                             int multiThreadLevel){
     JobContext* jc = new JobContext(client, inputVec, outputVec, multiThreadLevel);
-
+    int aaa = 2;
 }
 
 /**
