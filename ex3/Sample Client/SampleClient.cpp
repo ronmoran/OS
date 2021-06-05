@@ -105,8 +105,8 @@ int main(int argc, char** argv)
 	for (OutputPair& pair: outputVec) {
 		char c = ((const KChar*)pair.first)->c;
 		int count = ((const VCount*)pair.second)->count;
-//		printf("The character %c appeared %d time%s\n",
-//			c, count, count > 1 ? "s" : "");
+		printf("The character %c appeared %d time%s\n",
+			c, count, count > 1 ? "s" : "");
 		delete pair.first;
 		delete pair.second;
 	}

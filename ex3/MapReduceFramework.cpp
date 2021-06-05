@@ -52,7 +52,7 @@ void incrementStage(std::atomic<UINT64> *counter)
 
 struct ThreadContext
 {
-    pthread_t *thread;
+    pthread_t thread;
     IntermediateVec intermediate; //each thread's intermediate vector
     uint32_t threadID;
     JobContext* jobContext; //holds all other refrences
@@ -174,14 +174,14 @@ public:
         pthread_mutex_init(&prettyPrint, nullptr); //todo debug
         for(uint32_t i = 0; i < multiThreadLevel; i++)
         {
-            ThreadContext* currThreadContext = new ThreadContext;
-            currThreadContext->threadID = i;
-            currThreadContext->jobContext = this;
-            currThreadContext->intermediate = *new IntermediateVec;
-            pthread_t threadId;
-            threads[i] = *currThreadContext;
-            pthread_create(&threadId, nullptr, &JobContext::runThread, (threads + i));
-            this->output = currThreadContext->jobContext->output;
+//            ThreadContext* currThreadContext = new ThreadContext;
+//            currThreadContext->threadID = i;
+//            currThreadContext->jobContext = this;
+//            currThreadContext->intermediate = *new IntermediateVec;
+            pthread_t thread = 0;
+            threads[i] = {thread, IntermediateVec(), i, this};
+            pthread_create(&thread, nullptr, &JobContext::runThread, (threads + i));
+//            this->output = currThreadContext->jobContext->output;
         }
     }
     ~JobContext()
@@ -199,7 +199,7 @@ public:
         for(int i=0; i < multiThreadLevel; i++)
         {
             auto pt = threads[i].thread;
-            pthread_join(*pt, nullptr);
+            pthread_join(pt, nullptr);
         }
     }
 };
@@ -248,7 +248,7 @@ void getJobState(JobHandle job, JobState* state){
 void closeJobHandle(JobHandle job) {
     waitForJob(job);
     auto jc = static_cast<JobContext*>(job);
-    jc -> ~JobContext();
+    delete jc;
 }
 
 
