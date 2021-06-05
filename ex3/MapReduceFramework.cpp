@@ -68,6 +68,7 @@ private:
     sem_t stageSem;
     int multiThreadLevel;
     std::vector<IntermediateVec> queue;
+    bool isJoined;
 
     static void* runThread(void* thisObj)
     {
@@ -147,11 +148,11 @@ private:
 //            std::cout << "total: " << j->totalWork <<std::endl;
 //            pthread_mutex_unlock(&j->prettyPrint);
         }
-        if (getProgress(j->counter) >= j->totalWork)
-        {
-            incrementStage(&j->counter);
-            std::cout << "Stage: " << getStage(j->counter);
-        }
+//        if (getProgress(j->counter) >= j->totalWork)
+//        {
+//            incrementStage(&j->counter);
+//            std::cout << "Stage: " << getStage(j->counter);
+//        }
         return nullptr;
     }
 
@@ -164,7 +165,7 @@ public:
     JobContext(const MapReduceClient& client,
                const InputVec& inputVec, OutputVec& outputVec,
                int multiThreadLevel): client(client), input(inputVec), output(outputVec)
-            ,barrier(multiThreadLevel), totalWork(input.size()), queue()
+            ,barrier(multiThreadLevel), totalWork(input.size()), queue(), isJoined()
     {
         threads = new ThreadContext[multiThreadLevel];
         this->multiThreadLevel = multiThreadLevel;
@@ -187,6 +188,20 @@ public:
     {
         delete[] threads;
     }
+
+    void joinContext()
+    {
+        if(isJoined)
+        {
+            return;
+        }
+        isJoined = true;
+        for(int i=0; i < multiThreadLevel; i++)
+        {
+            auto pt = threads[i].thread;
+            pthread_join(*pt, nullptr);
+        }
+    }
 };
 
 
@@ -194,7 +209,7 @@ public:
 JobHandle startMapReduceJob(const MapReduceClient& client,
                             const InputVec& inputVec, OutputVec& outputVec,
                             int multiThreadLevel){
-    JobContext* jc = new JobContext(client, inputVec, outputVec, multiThreadLevel);
+    auto jc = new JobContext(client, inputVec, outputVec, multiThreadLevel);
     return jc;
 }
 
@@ -220,17 +235,20 @@ void emit3 (K3* key, V3* value, void* context){
     pthread_mutex_unlock(&tc -> jobContext->prettyPrint);
 }
 void waitForJob(JobHandle job){
-//    todo
-
+        auto jc = static_cast<JobContext*>(job);
+        jc->joinContext();
 }
+
 void getJobState(JobHandle job, JobState* state){
     auto jc = static_cast<JobContext*>(job);
     auto currState = getStage(jc->counter);
     state->stage = static_cast<stage_t>(currState);
     state->percentage = ((float)getProgress(jc->counter) / (float)(jc->totalWork)) * 100; //todo precision after decimal
 }
-void closeJobHandle(JobHandle job){
-
+void closeJobHandle(JobHandle job) {
+    waitForJob(job);
+    auto jc = static_cast<JobContext*>(job);
+    jc -> ~JobContext();
 }
 
 
