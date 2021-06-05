@@ -25,36 +25,31 @@ bool order_vec(const IntermediateVec &v1, const IntermediateVec &v2)
     return weak_order(v1.back(), v2.back());
 }
 
-int getStage(uint64_t atomic){
-    uint64_t mask = -1ULL-((1ULL<<62)-1ULL);
-    return (int) ((atomic & mask)>>62);
+stage_t getStage(uint64_t atomic){
+    uint64_t mask = 3ULL << COUNTER_WIDTH << COUNTER_WIDTH;
+    return static_cast<stage_t>((atomic & mask)>>62);
 
 }
-int getAll(uint64_t atomic){
+uint32_t getProgress(uint64_t atomic){
     uint64_t mask = (1ULL<<62)-1ULL-((1ULL<<31)-1ULL);
-    return (int) ((atomic & mask)>>31);
+    return static_cast<uint32_t>((atomic & mask)>>31);
 }
 
-int getCounter(uint64_t atomic){
+uint32_t getCounter(uint64_t atomic){
     uint64_t mask = (1ULL<<31)-1ULL;
-    return (int) atomic & mask;
+    return static_cast<uint32_t> (atomic & mask);
 }
-int resetCounter(uint64_t atomic){
-//    todo
+void resetCounter(std::atomic<UINT64> *counter){
+    *counter &= 3ULL << COUNTER_WIDTH << COUNTER_WIDTH;
 }
 
 
-
-
-/**
- * Update the phase of the map reduce between different stage_t values
- * @param stage The stage of the mapreduce. First STAGE_WIDTH bits are dedicated to the stage
- * @param st the stage to update
- */
-void updatePhase(std::atomic<UINT64> *stage, stage_t st)
+void incrementStage(std::atomic<UINT64> *counter)
 {
-    stage->exchange(*stage & (MAX_UINT64 & ((UINT64)st<<COUNTER_WIDTH<<TOTAL_TASKS_WIDTH)));
+    *counter+= 1ULL << COUNTER_WIDTH << COUNTER_WIDTH;
+    resetCounter(counter);
 }
+
 struct ThreadContext
 {
     pthread_t *thread;
@@ -70,36 +65,43 @@ private:
     const InputVec& input;
     Barrier barrier;
     sem_t shuffleSem;
+    sem_t stageSem;
     int multiThreadLevel;
+    std::vector<IntermediateVec> queue;
 
     static void* runThread(void* thisObj)
     {
         auto *tc = static_cast<ThreadContext*>(thisObj);
         JobContext *j = tc->jobContext;
-//        updatePhase(&(j->stage), MAP_STAGE);
-        unsigned long size = j->input.size();
-        //todo which counter to update
-        j->counter+=(size<<31);
-        int i = getCounter(j->counter++);
+        if (tc -> threadID == 0)
+        {
+            incrementStage(&(j->counter));
+        }
+        else
+        {
+            sem_wait(&(j->stageSem));
+        }
+        sem_post(&(j->stageSem));
+        auto size = j->input.size();
+        auto i = getCounter(j->counter++);
         while(i < size) //atomically increase an index and get its previous value
         {
             auto item = j ->input[i];
             j->client.map(item.first, item.second, (void*)tc);
+            j->counter += 1ULL << COUNTER_WIDTH;
             i = getCounter(j->counter++);
         }
-        unsigned int totalIntermediate = tc->intermediate.size();
+//        unsigned int totalIntermediate = tc->intermediate.size();
         std::sort(tc->intermediate.begin(), tc->intermediate.end(), weak_order); //no race condition problem
         j->barrier.barrier();
-        std::vector<IntermediateVec> queue;
-        IntermediateVec prev;
-
         if (tc -> threadID != 0)
         {
             sem_wait(&j->shuffleSem); //stop all threads but the shuffling thread (zero)
         }
         else
         {
-//            updatePhase(&(j->stage), SHUFFLE_STAGE);
+            IntermediateVec prev;
+            incrementStage(&(j->counter));
             //todo shuffle
             for(int k = 0; k < tc->jobContext->multiThreadLevel; k++)
             {
@@ -107,50 +109,68 @@ private:
                 std::merge(prev.begin(),prev.end(), tc->jobContext->threads[k].intermediate.begin(),
                            tc->jobContext->threads[k].intermediate.end(), std::back_inserter(dest), weak_order);
                 prev = dest;
-
             }
+            j->totalWork = prev.size();
             IntermediateVec matchingPairs;
             IntermediatePair currPair = prev.front();
             for(IntermediatePair pair:prev){
+                j -> counter++;
                 if(!(*pair.first < *currPair.first) && !(*currPair.first < *pair.first)){
                     matchingPairs.push_back(pair);
                 } else{
-                    queue.push_back(matchingPairs);
+                    j -> queue.push_back(matchingPairs);
                     matchingPairs.clear();
                     currPair = pair;
                     matchingPairs.push_back(pair);
                 }
+                j->counter += 1ULL << COUNTER_WIDTH;
             }
-            queue.push_back(matchingPairs);
+            j->queue.push_back(matchingPairs);
+            incrementStage(&(j->counter));
+            j->totalWork = j->queue.size();
         }
-        //updatePhase(&(j->stage), REDUCE_STAGE);
-        //todo fix reset - only reset first part
-        j->counter = 0;
-        sem_destroy(&j->shuffleSem);
-        //todo which counter to update
-        int k = getCounter(j->counter++);
-        while(k< queue.size()) //atomically increase an index and get its previous value
+        sem_post(&j->shuffleSem);
+        auto k = getCounter(j->counter++);
+
+//        int k = getCounter(j->counter++);
+        while(k< j -> queue.size()) //atomically increase an index and get its previous value
         {
-            std::cout<<k<<std::endl;
-            const IntermediateVec* item = &queue[k];
+            const IntermediateVec* item = &j->queue[k];
             j->client.reduce(item, tc);
             k = getCounter(j->counter++);
+            j->counter += 1ULL << COUNTER_WIDTH;
+//            pthread_mutex_lock(&j->prettyPrint);
+//            JobState js;
+//            getJobState(j, &js);
+//            std::cout << "percentage: " << js.percentage <<std::endl;
+//            std::cout << "progress: " << getProgress(j->counter) <<std::endl;
+//            std::cout << "total: " << j->totalWork <<std::endl;
+//            pthread_mutex_unlock(&j->prettyPrint);
         }
-        return 0;
+        if (getProgress(j->counter) >= j->totalWork)
+        {
+            incrementStage(&j->counter);
+            std::cout << "Stage: " << getStage(j->counter);
+        }
+        return nullptr;
     }
 
 
 public:
     OutputVec& output;
     std::atomic<uint64_t> counter;
+    unsigned int totalWork;
+    pthread_mutex_t prettyPrint; //todo debug
     JobContext(const MapReduceClient& client,
                const InputVec& inputVec, OutputVec& outputVec,
                int multiThreadLevel): client(client), input(inputVec), output(outputVec)
-            ,barrier(multiThreadLevel)
+            ,barrier(multiThreadLevel), totalWork(input.size()), queue()
     {
         threads = new ThreadContext[multiThreadLevel];
         this->multiThreadLevel = multiThreadLevel;
         sem_init(&shuffleSem, 0, 0);
+        sem_init(&stageSem, 0, 0);
+        pthread_mutex_init(&prettyPrint, nullptr); //todo debug
         for(uint32_t i = 0; i < multiThreadLevel; i++)
         {
             ThreadContext* currThreadContext = new ThreadContext;
@@ -191,26 +211,23 @@ void emit2 (K2* key, V2* value, void* context){
 
     auto *tc = static_cast<ThreadContext*>(context);
     tc->intermediate.push_back(IntermediatePair(key, value));
-    //todo which counter to update
-    tc->jobContext->counter++;
 }
 void emit3 (K3* key, V3* value, void* context){
 
     auto *tc = static_cast<ThreadContext*>(context);
+    pthread_mutex_lock(&tc -> jobContext->prettyPrint);
     tc->jobContext->output.push_back(OutputPair(key, value));
-    //todo which counter to update
-    tc->jobContext->counter++;
+    pthread_mutex_unlock(&tc -> jobContext->prettyPrint);
 }
 void waitForJob(JobHandle job){
 //    todo
 
 }
 void getJobState(JobHandle job, JobState* state){
-    JobContext* jc = static_cast<JobContext*>(job);
+    auto jc = static_cast<JobContext*>(job);
     auto currState = getStage(jc->counter);
     state->stage = static_cast<stage_t>(currState);
-//    todo change
-    state->percentage = 10.0;
+    state->percentage = ((float)getProgress(jc->counter) / (float)(jc->totalWork)) * 100; //todo precision after decimal
 }
 void closeJobHandle(JobHandle job){
 
