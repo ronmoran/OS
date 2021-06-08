@@ -11,6 +11,7 @@
 
 
 typedef std::atomic<uint64_t> atomic64;
+
 class JobContext;
 
 /**
@@ -30,9 +31,10 @@ bool weak_order(const IntermediatePair &pair1, const IntermediatePair &pair2)
  * @param atomic The atomic counter of the map-reduce job
  * @return the current stage
  */
-stage_t getStage(uint64_t atomic){
+stage_t getStage(uint64_t atomic)
+{
     uint64_t mask = 3ULL << COUNTER_WIDTH << COUNTER_WIDTH;
-    return static_cast<stage_t>((atomic & mask)>>62);
+    return static_cast<stage_t>((atomic & mask) >> 62);
 }
 
 /**
@@ -40,9 +42,10 @@ stage_t getStage(uint64_t atomic){
  * @param atomic
  * @return num of finished jobs
  */
-uint32_t getNumFinished(uint64_t atomic){
-    uint64_t mask = (1ULL<<62)-1ULL-((1ULL<<31)-1ULL); // mask of 31 bits of ones: 00111...111000...000
-    return static_cast<uint32_t>((atomic & mask)>>31);
+uint32_t getNumFinished(uint64_t atomic)
+{
+    uint64_t mask = (1ULL << 62) - 1ULL - ((1ULL << 31) - 1ULL); // mask of 31 bits of ones: 00111...111000...000
+    return static_cast<uint32_t>((atomic & mask) >> 31);
 }
 
 /**
@@ -50,8 +53,9 @@ uint32_t getNumFinished(uint64_t atomic){
  * @param counter
  * @return num of started jobs
  */
-uint32_t getNumStarted(uint64_t counter){
-    uint64_t mask = (1ULL<<31)-1ULL; // mask of 31 1-bits 000...000111...111
+uint32_t getNumStarted(uint64_t counter)
+{
+    uint64_t mask = (1ULL << 31) - 1ULL; // mask of 31 1-bits 000...000111...111
     return static_cast<uint32_t> (counter & mask);
 }
 
@@ -75,10 +79,11 @@ private:
     pthread_t thread;
     IntermediateVec intermediate; //each thread's intermediate vector
     uint32_t threadID;
-    JobContext* jobContext; //holds all other references
+    JobContext *jobContext; //holds all other references
 public:
 
-    ThreadContext(): thread(), intermediate(), threadID(), jobContext() {}
+    ThreadContext() : thread(), intermediate(), threadID(), jobContext()
+    {}
 
     /**
      * Create a new thread context object from parameters.
@@ -90,10 +95,10 @@ public:
     ThreadContext(pthread_t thread, IntermediateVec intermediate, uint32_t threadId, JobContext *jobContext)
             : thread(thread), intermediate(intermediate), threadID(threadId), jobContext(jobContext)
     {
-        this -> intermediate = std::move(intermediate);
+        this->intermediate = std::move(intermediate);
     }
 
-    ThreadContext& operator=(const ThreadContext &tc)
+    ThreadContext &operator=(const ThreadContext &tc)
     {
         if (&tc != this)
         {
@@ -105,7 +110,7 @@ public:
         return *this;
     }
 
-    pthread_t& getThread()
+    pthread_t &getThread()
     {
         return thread;
     }
@@ -131,11 +136,12 @@ public:
 /**
  * The MapReduce representation. Holds all the worker threads and sync primitives.
  */
-class JobContext {
+class JobContext
+{
 private:
     ThreadContext *threads;
-    const MapReduceClient& client;
-    const InputVec& input;
+    const MapReduceClient &client;
+    const InputVec &input;
     Barrier barrier;
     sem_t shuffleSem;
     sem_t stageSetSem;
@@ -143,10 +149,10 @@ private:
     std::vector<IntermediateVec> queue;
     pthread_mutex_t joinMutex;
     bool isJoined;
-    OutputVec& output;
+    OutputVec &output;
 
     // The main thread function - map, shuffle reduce and in between
-    static void* runThread(void* threadContext);
+    static void *runThread(void *threadContext);
 
     void static map(ThreadContext *tc);
 
@@ -159,7 +165,8 @@ public:
     std::atomic<uint64_t> counter;
     size_t totalWork;
     pthread_mutex_t emitMutex;
-    JobContext(const MapReduceClient& client,
+
+    JobContext(const MapReduceClient &client,
                const InputVec &inputVec, OutputVec &outputVec,
                int multiThreadLevel);
 
@@ -174,12 +181,12 @@ public:
             {
                 pthread_join(threads[i].getThread(), nullptr);
             }
-        isJoined = true;
+            isJoined = true;
         }
         pthread_mutex_unlock(&joinMutex);
     }
 
-    void getJobState(JobState* state);
+    void getJobState(JobState *state);
 
     void writeToOutput(K3 *key, V3 *value);
 
@@ -189,10 +196,10 @@ public:
 };
 
 
-
-JobHandle startMapReduceJob(const MapReduceClient& client,
-                            const InputVec& inputVec, OutputVec& outputVec,
-                            int multiThreadLevel){
+JobHandle startMapReduceJob(const MapReduceClient &client,
+                            const InputVec &inputVec, OutputVec &outputVec,
+                            int multiThreadLevel)
+{
     auto jc = new JobContext(client, inputVec, outputVec, multiThreadLevel);
     return jc;
 }
@@ -206,29 +213,36 @@ JobHandle startMapReduceJob(const MapReduceClient& client,
  * @param value
  * @param context has to be castable to a sensible JobContext object
  */
-void emit2 (K2* key, V2* value, void* context){
+void emit2(K2 *key, V2 *value, void *context)
+{
 
-    auto *tc = static_cast<ThreadContext*>(context);
+    auto *tc = static_cast<ThreadContext *>(context);
     tc->getIntermediate().push_back(IntermediatePair(key, value));
 }
-void emit3 (K3* key, V3* value, void* context){
 
-    auto *tc = static_cast<ThreadContext*>(context);
-    tc -> getJobContext() ->writeToOutput(key, value);
+void emit3(K3 *key, V3 *value, void *context)
+{
+
+    auto *tc = static_cast<ThreadContext *>(context);
+    tc->getJobContext()->writeToOutput(key, value);
 }
-void waitForJob(JobHandle job){
-    auto jc = static_cast<JobContext*>(job);
+
+void waitForJob(JobHandle job)
+{
+    auto jc = static_cast<JobContext *>(job);
     jc->joinContext();
 }
 
-void getJobState(JobHandle job, JobState* state){
-    auto jc = static_cast<JobContext*>(job);
-    jc -> getJobState(state);
+void getJobState(JobHandle job, JobState *state)
+{
+    auto jc = static_cast<JobContext *>(job);
+    jc->getJobState(state);
 }
 
-void closeJobHandle(JobHandle job) {
+void closeJobHandle(JobHandle job)
+{
     waitForJob(job);
-    auto jc = static_cast<JobContext*>(job);
+    auto jc = static_cast<JobContext *>(job);
     delete jc;
 }
 
@@ -269,7 +283,7 @@ void JobContext::getJobState(JobState *state)
     state->stage = static_cast<stage_t>(getStage(counter_copy));
 }
 
-void JobContext::writeToOutput(K3* key, V3* value)
+void JobContext::writeToOutput(K3 *key, V3 *value)
 {
     pthread_mutex_lock(&emitMutex);
     output.push_back(OutputPair(key, value));
@@ -294,11 +308,14 @@ void JobContext::joinSortedKeys(std::vector<IntermediatePair> &tmp)
 {
     IntermediateVec matchingPairs;
     IntermediatePair currPair = tmp.front();
-    for(IntermediatePair pair:tmp){
+    for (IntermediatePair pair:tmp)
+    {
         counter++;
-        if(!(*pair.first < *currPair.first) && !(*currPair.first < *pair.first)){
+        if (!(*pair.first < *currPair.first) && !(*currPair.first < *pair.first))
+        {
             matchingPairs.push_back(pair); //single key
-        } else{
+        } else
+        {
             queue.push_back(matchingPairs); //add single key
             matchingPairs.clear();
             currPair = pair;
@@ -312,13 +329,13 @@ void JobContext::joinSortedKeys(std::vector<IntermediatePair> &tmp)
 void JobContext::sortIntermediates(IntermediateVec &tmpIntermediate) const
 {
     unsigned int q_size = 0;
-    for(uint32_t k = 0; k < multiThreadLevel; k++)
+    for (uint32_t k = 0; k < multiThreadLevel; k++)
     {
         q_size += threads[k].getIntermediate().size();
     }
     tmpIntermediate.resize(q_size);
     size_t ind = 0;
-    for(uint32_t k = 0; k < multiThreadLevel; k++)
+    for (uint32_t k = 0; k < multiThreadLevel; k++)
     {
         std::copy(threads[k].getIntermediate().cbegin(),
                   threads[k].getIntermediate().cend(),
@@ -371,11 +388,11 @@ void JobContext::map(ThreadContext *tc)
 
 void JobContext::reduce(ThreadContext *tc)
 {
-    auto *j = (tc -> getJobContext());
+    auto *j = (tc->getJobContext());
     auto k = getNumStarted(j->counter++);
-    while(k< j -> queue.size()) //atomically increase an index and get its previous value
+    while (k < j->queue.size()) //atomically increase an index and get its previous value
     {
-        const IntermediateVec* item = &j->queue[k];
+        const IntermediateVec *item = &j->queue[k];
         j->client.reduce(item, tc);
         k = getNumStarted(j->counter++);
         j->counter += 1ULL << COUNTER_WIDTH;
