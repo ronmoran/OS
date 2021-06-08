@@ -15,7 +15,7 @@ TARGETS = $(MAPREDUCELIB)
 TAR=tar
 TARFLAGS=-cvf
 TARNAME=ex3.tar
-TARSRCS=$(LIBSRC) Makefile README
+TARSRCS=$(LIBSRC) Makefile README Barrier/Barrier.h
 
 all: $(TARGETS)
 
