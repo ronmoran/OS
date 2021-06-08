@@ -8,14 +8,38 @@
 
 #define COUNTER_WIDTH 31
 #define SHUFFLE_THREAD_ID 0
-
+#define SUCCESS 0
+#define ERROR_EXIT 1
+#define PERCENT_FACTOR 100
+#define GENERAL_ERROR "system error: "
+#define MUTEX_LOCK_ERROR "Unable to acquire mutex"
+#define MUTEX_UNLOCK_ERROR "Unable to release mutex"
+#define SEMAPHORE_WAIT_ERROR "Unable to wait for semaphore"
+#define SEMAPHORE_POST_ERROR "Unable to post to semaphore"
 
 typedef std::atomic<uint64_t> atomic64;
 
 class JobContext;
 
+class ThreadContext;
+
+/** mask of 2 bits at [62-63] */
+uint64_t MSB_BITS_MASK = 3ULL << COUNTER_WIDTH << COUNTER_WIDTH;
+
+/** mask of 31 bits  at [31-61] */
+uint64_t MID_BITS_MASK = (1ULL << COUNTER_WIDTH << COUNTER_WIDTH) - 1ULL - ((1ULL << COUNTER_WIDTH) - 1ULL);
+
+/** mask of 31 bits at [0-30] */
+uint64_t LSB_BITS_MASK = (1ULL << COUNTER_WIDTH) - 1ULL; // mask of 31 1-bits 000...000111...111
+
+void error_exit(const std::string &message)
+{
+    std::cerr << GENERAL_ERROR << message << std::endl;
+    exit(ERROR_EXIT);
+}
+
 /**
- * Apply weak "<" order between IntermdiatePair objects for comparison.
+ * Apply weak "<" order between IntermediatePair objects for comparison.
  * They are compared based on the "first" attribute
  * @param pair1
  * @param pair2
@@ -33,8 +57,7 @@ bool weak_order(const IntermediatePair &pair1, const IntermediatePair &pair2)
  */
 stage_t getStage(uint64_t atomic)
 {
-    uint64_t mask = 3ULL << COUNTER_WIDTH << COUNTER_WIDTH;
-    return static_cast<stage_t>((atomic & mask) >> 62);
+    return static_cast<stage_t>((atomic & MSB_BITS_MASK) >> COUNTER_WIDTH >> COUNTER_WIDTH);
 }
 
 /**
@@ -44,8 +67,7 @@ stage_t getStage(uint64_t atomic)
  */
 uint32_t getNumFinished(uint64_t atomic)
 {
-    uint64_t mask = (1ULL << 62) - 1ULL - ((1ULL << 31) - 1ULL); // mask of 31 bits of ones: 00111...111000...000
-    return static_cast<uint32_t>((atomic & mask) >> 31);
+    return static_cast<uint32_t>((atomic & MID_BITS_MASK) >> COUNTER_WIDTH);
 }
 
 /**
@@ -55,10 +77,9 @@ uint32_t getNumFinished(uint64_t atomic)
  */
 uint32_t getNumStarted(uint64_t counter)
 {
-    uint64_t mask = (1ULL << 31) - 1ULL; // mask of 31 1-bits 000...000111...111
-    return static_cast<uint32_t> (counter & mask);
-}
 
+    return static_cast<uint32_t> (counter & LSB_BITS_MASK);
+}
 
 /**
  * Increment to the next stage and reset the count of jobs (started and finished)
@@ -67,7 +88,6 @@ uint32_t getNumStarted(uint64_t counter)
 void setStage(atomic64 *counter, stage_t stage)
 {
     *counter = stage * 1ULL << COUNTER_WIDTH << COUNTER_WIDTH;
-//    resetCounter(counter);
 }
 
 /**
@@ -98,14 +118,19 @@ public:
         this->intermediate = std::move(intermediate);
     }
 
-    ThreadContext &operator=(const ThreadContext &tc)
+    /**
+     * Copy attributes from another object into this one
+     * @param other Another ThreadContext obj
+     * @return
+     */
+    ThreadContext &operator=(const ThreadContext &other)
     {
-        if (&tc != this)
+        if (&other != this)
         {
-            thread = tc.thread;
-            intermediate = tc.intermediate;
-            threadID = tc.threadID;
-            jobContext = tc.jobContext;
+            thread = other.thread;
+            intermediate = other.intermediate;
+            threadID = other.threadID;
+            jobContext = other.jobContext;
         }
         return *this;
     }
@@ -142,57 +167,63 @@ private:
     ThreadContext *threads;
     const MapReduceClient &client;
     const InputVec &input;
-    Barrier barrier;
-    sem_t shuffleSem;
-    sem_t stageSetSem;
-    uint32_t multiThreadLevel;
-    std::vector<IntermediateVec> queue;
-    pthread_mutex_t joinMutex;
-    bool isJoined;
-    OutputVec &output;
+    Barrier barrier; // to align all threads at a certain point
+    sem_t shuffleSem; // to allow only a single thread in the shuffle stage
+    sem_t stageSetSem; // safely set the stage from only one thread and avoid counter errors
+    uint32_t multiThreadLevel; // how many threads
+    std::vector<IntermediateVec> queue; // for reduce
+    pthread_mutex_t joinMutex; // to join all threads and wait
+    bool isJoined; // joining threads is allowed only one time
+    OutputVec &output; // the output of the map reduce
+    pthread_mutex_t emitMutex; //safely write from reduce
+    size_t totalWork; // all work to to at a specific stage
+    std::atomic<uint64_t> counter;
 
     // The main thread function - map, shuffle reduce and in between
     static void *runThread(void *threadContext);
 
     void static map(ThreadContext *tc);
 
-    void shuffle();
+    void shuffle(); // Doesn't need a thread context
 
     static void reduce(ThreadContext *tc);
 
+    void sortIntermediates(IntermediateVec &tmpIntermediate) const;
+
+    void joinSortedKeys(std::vector<IntermediatePair> &tmp);
+
 
 public:
-    std::atomic<uint64_t> counter;
-    size_t totalWork;
-    pthread_mutex_t emitMutex;
 
+    /**
+     * Construct a new map reduce job handler
+     * @param client The client of the map and reduce actions. The client is expected to use emit2 in map
+     * and emit3 in reduce.
+     * @param inputVec input to map
+     * @param outputVec output from reduce
+     * @param multiThreadLevel how many threads to open
+     */
     JobContext(const MapReduceClient &client,
                const InputVec &inputVec, OutputVec &outputVec,
                int multiThreadLevel);
 
     ~JobContext();
 
-    void joinContext()
-    {
-        pthread_mutex_lock(&joinMutex);
-        if (!isJoined)
-        {
-            for (uint32_t i = 0; i < multiThreadLevel; i++)
-            {
-                pthread_join(threads[i].getThread(), nullptr);
-            }
-            isJoined = true;
-        }
-        pthread_mutex_unlock(&joinMutex);
-    }
+    /**
+     * Wait for all workers. Calling this function will block progress until all threads finished
+     */
+    void joinContext();
 
+    /**
+     * Update the state input with the current progress
+     */
     void getJobState(JobState *state);
 
+    /**
+     * Safely add a new key, value pair to the output during the reduce.
+     * Shareable among threads
+     */
     void writeToOutput(K3 *key, V3 *value);
-
-    void sortIntermediates(IntermediateVec &tmpIntermediate) const;
-
-    void joinSortedKeys(std::vector<IntermediatePair> &tmp);
 };
 
 
@@ -207,11 +238,10 @@ JobHandle startMapReduceJob(const MapReduceClient &client,
 /**
  * The function receives as input intermediary element (K2, V2) and context which contains
     data structure of the thread that created the intermediary element. The function saves the
-    intermediary element in the context data structures. In addition, the function updates the
-    number of intermediary elements using atomic counter.
+    intermediary element in the context data structures.
  * @param key
  * @param value
- * @param context has to be castable to a sensible JobContext object
+ * @param context
  */
 void emit2(K2 *key, V2 *value, void *context)
 {
@@ -239,11 +269,14 @@ void getJobState(JobHandle job, JobState *state)
     jc->getJobState(state);
 }
 
+/**
+ * Expects job to be allocated on the heap
+ */
 void closeJobHandle(JobHandle job)
 {
     waitForJob(job);
     auto jc = static_cast<JobContext *>(job);
-    delete jc;
+    delete jc; //free resource
 }
 
 JobContext::JobContext(const MapReduceClient &client,
@@ -252,44 +285,103 @@ JobContext::JobContext(const MapReduceClient &client,
                                                shuffleSem(), stageSetSem(),
                                                multiThreadLevel((uint32_t) multiThreadLevel),
                                                queue(), joinMutex(), isJoined(false),
-                                               output(outputVec), counter(), totalWork(input.size()), emitMutex()
+                                               output(outputVec), emitMutex(), totalWork(input.size()), counter()
 {
-    threads = new ThreadContext[multiThreadLevel]();
-    sem_init(&shuffleSem, 0, 0);
-    sem_init(&stageSetSem, 0, 0);
-    pthread_mutex_init(&emitMutex, nullptr);
-    pthread_mutex_init(&joinMutex, nullptr);
+    threads = new(std::nothrow)ThreadContext[multiThreadLevel]();
+    if (!threads)
+    {
+        error_exit("Memory allocation for threads array failed");
+    }
+    int ret = sem_init(&shuffleSem, 0, 0);
+    ret |= sem_init(&stageSetSem, 0, 0);
+    if (ret != SUCCESS)
+    {
+        error_exit("Semaphore initialization failed");
+    }
+    ret = pthread_mutex_init(&emitMutex, nullptr);
+    ret |= pthread_mutex_init(&joinMutex, nullptr);
+    if (ret != SUCCESS)
+    {
+        error_exit("Mutex initialization failed");
+    }
     for (uint32_t i = 0; i < this->multiThreadLevel; i++)
     {
         pthread_t thread = 0;
+        // Initialize all threads. Warning is not real since a bad alloc will exit
         threads[i] = ThreadContext(thread, IntermediateVec(), i, this);
-        pthread_create(&threads[i].getThread(), nullptr, &JobContext::runThread, (threads + i));
+        // Fun part starts here - spawn threads!!!!
+        ret = pthread_create(&threads[i].getThread(), nullptr, &JobContext::runThread, (threads + i));
+        if (ret != SUCCESS)
+        {
+            error_exit("Thread creation failed");
+        }
     }
 }
 
 JobContext::~JobContext()
 {
     delete[] threads;
-    pthread_mutex_destroy(&emitMutex);
-    pthread_mutex_destroy(&joinMutex);
-    sem_destroy(&shuffleSem);
-    sem_destroy(&stageSetSem);
+    int ret = pthread_mutex_destroy(&emitMutex);
+    ret |= pthread_mutex_destroy(&joinMutex);
+    if (ret != SUCCESS)
+    {
+        error_exit("Mutex destruction returned an error");
+    }
+    ret = sem_destroy(&shuffleSem);
+    ret |= sem_destroy(&stageSetSem);
+    if (ret != SUCCESS)
+    {
+        error_exit("Semaphore destruction returned an error");
+    }
 }
 
 void JobContext::getJobState(JobState *state)
 {
-    uint64_t counter_copy = counter.load();
-    state->percentage = ((float) getNumFinished(counter_copy) / (float) (totalWork)) * 100; //todo precision
+    uint64_t counter_copy = counter.load(); //so it doesn't change during calculation
+    state->percentage = ((float) getNumFinished(counter_copy) / (float) (totalWork)) * PERCENT_FACTOR;
     state->stage = static_cast<stage_t>(getStage(counter_copy));
 }
 
 void JobContext::writeToOutput(K3 *key, V3 *value)
 {
-    pthread_mutex_lock(&emitMutex);
+    int ret = pthread_mutex_lock(&emitMutex);
+    if (ret != SUCCESS)
+    {
+        error_exit(MUTEX_LOCK_ERROR);
+    }
     output.push_back(OutputPair(key, value));
-    pthread_mutex_unlock(&emitMutex);
+    ret = pthread_mutex_unlock(&emitMutex);
+    if (ret != SUCCESS)
+    {
+        error_exit(MUTEX_UNLOCK_ERROR);
+    }
 }
 
+void JobContext::joinContext()
+{
+    int ret = pthread_mutex_lock(&joinMutex); // Wait until the lock is released, probably until all threads join
+    if (ret != SUCCESS)
+    {
+        error_exit(MUTEX_LOCK_ERROR);
+    }
+    if (!isJoined) // check if already joined
+    {
+        for (uint32_t i = 0; i < multiThreadLevel; i++)
+        {
+            int rett = pthread_join(threads[i].getThread(), nullptr);
+            if (rett != SUCCESS)
+            {
+                error_exit("Error with joining threads");
+            }
+        }
+        isJoined = true; // avoid a second join
+    }
+    ret = pthread_mutex_unlock(&joinMutex);
+    if (ret != SUCCESS)
+    {
+        error_exit(MUTEX_UNLOCK_ERROR);
+    }
+}
 
 /**  private **/
 
@@ -352,28 +444,43 @@ void *JobContext::runThread(void *threadContext)
     map(tc);
     if (tc->getThreadId() != SHUFFLE_THREAD_ID)
     {
-        sem_wait(&j->shuffleSem); //stop all threads but the shuffling thread (zero)
+        int ret = sem_wait(&j->shuffleSem); //stop all threads but the shuffling thread (zero)
+        if (ret != SUCCESS)
+        {
+            error_exit(SEMAPHORE_WAIT_ERROR);
+        }
     } else
     {
         j->shuffle();
     }
-    sem_post(&j->shuffleSem); //resume threads, one after another
+    int ret = sem_post(&j->shuffleSem); //resume threads, one after another
+    if (ret != SUCCESS)
+    {
+        error_exit(SEMAPHORE_POST_ERROR);
+    }
     reduce(tc);
     return nullptr;
 }
-
 
 void JobContext::map(ThreadContext *tc)
 {
     JobContext *j = tc->getJobContext();
     if (tc->getThreadId() != SHUFFLE_THREAD_ID)
     {
-        sem_wait((&j->stageSetSem));
+        int res = sem_wait((&j->stageSetSem));
+        if (res != SUCCESS)
+        {
+            error_exit(SEMAPHORE_WAIT_ERROR);
+        }
     } else
     {
         setStage(&j->counter, MAP_STAGE);
     }
-    sem_post(&j->stageSetSem);
+    int res = sem_post(&j->stageSetSem);
+    if (res != SUCCESS)
+    {
+        error_exit(SEMAPHORE_POST_ERROR);
+    }
     auto size = j->input.size();
     auto i = getNumStarted(j->counter++);
     while (i < size) //atomically increase an index and get its previous value
