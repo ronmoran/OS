@@ -8,4 +8,4 @@ include_directories(.)
 SET(CMAKE_CXX_FLAGS -pthread)
 
 
-add_executable(prog1 SimpleTest.cpp)
+add_executable(prog1 SimpleTest.cpp VirtualMemory.h VirtualMemory.cpp PhysicalMemory.h PhysicalMemory.cpp)
