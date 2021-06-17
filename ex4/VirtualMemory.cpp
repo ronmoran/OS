@@ -30,9 +30,10 @@ static void findFree(uint64_t address, int depth, uint64_t *free, uint64_t paren
                      uint64_t selfNode, uint64_t *maxFrame) {
     int freeCells = 0;
     int value = 0;
-    if (*depth > TABLES_DEPTH) {
-        return -1;
+    if (depth > TABLES_DEPTH) {
+        return;
     }
+    *maxFrame = address > *maxFrame ? address : *maxFrame;
     for (int off = 0; off < OFFSET_WIDTH; ++off) {
         PMread(address + off, &value);
         if (value == 0) {
@@ -45,8 +46,16 @@ static void findFree(uint64_t address, int depth, uint64_t *free, uint64_t paren
             }
         }
     }
-    if (freeCells == OFFSET_WIDTH) {
+    if (freeCells == OFFSET_WIDTH && address != selfNode) { //case 1
+        PMwrite(parentNode + childOffset, 0); // reset node
         *free = address;
+    } else if (depth == 0 && *free == -1) { //finished recursion w/o finding a free frame
+
+        if (*maxFrame < NUM_FRAMES - 1) { //case 2
+            *free = *maxFrame + 1;
+        }
+    } else {
+        evict //case 3
     }
 }
 
