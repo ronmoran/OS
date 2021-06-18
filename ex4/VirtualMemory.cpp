@@ -26,6 +26,42 @@ static void translateAddr(uint64_t virtualAddress, uint64_t *buffer) {
     }
 }
 
+
+static void
+evict(uint64_t address, uint64_t *dataPageAddress, uint64_t *evictOffset,
+      uint64_t *evictParent, uint64_t accumOff, uint64_t parentAddr, int currentWeight, int depth,
+      int *maxWeight) {
+    word_t value = 0;
+    if (depth < TABLES_DEPTH - 1) {
+        for (int off = 0; off < PAGE_SIZE; ++off) {
+            PMread(address + off, &value);
+            if (value != 0) {
+                currentWeight += (address % 2 == 0 ? WEIGHT_EVEN : WEIGHT_ODD);
+
+                evict(value, dataPageAddress, evictParent, evictOffset,
+                      (accumOff + off) << OFFSET_WIDTH, address, currentWeight,
+                      depth + 1, maxWeight);
+            }
+        }
+    } else if (depth == TABLES_DEPTH - 1) {
+        currentWeight += (accumOff % 2 == 0 ? WEIGHT_EVEN : WEIGHT_ODD);
+        if (currentWeight > *maxWeight || (currentWeight == *maxWeight && accumOff < *evictOffset)) {
+            *maxWeight = currentWeight;
+            *dataPageAddress = address;
+            *evictParent = parentAddr;
+            *evictOffset = accumOff;
+        }
+    }
+
+
+    if (depth == 0) {
+        PMevict(*dataPageAddress, *evictOffset);
+        clearTable(*dataPageAddress);
+        PMwrite(*dataPageAddress + (((1ULL<<OFFSET_WIDTH) - 1) & *evictOffset), 0);
+    }
+}
+
+
 static void findFree(uint64_t address, int depth, uint64_t *free, uint64_t parentNode, uint64_t childOffset,
                      uint64_t selfNode, uint64_t *maxFrame) {
     int freeCells = 0;
@@ -34,7 +70,7 @@ static void findFree(uint64_t address, int depth, uint64_t *free, uint64_t paren
         return;
     }
     *maxFrame = address > *maxFrame ? address : *maxFrame;
-    for (int off = 0; off < OFFSET_WIDTH; ++off) {
+    for (int off = 0; off < PAGE_SIZE; ++off) {
         PMread(address + off, &value);
         if (value == 0) {
             freeCells++;
@@ -46,7 +82,7 @@ static void findFree(uint64_t address, int depth, uint64_t *free, uint64_t paren
             }
         }
     }
-    if (freeCells == OFFSET_WIDTH && address != selfNode) { //case 1
+    if (freeCells == PAGE_SIZE && address != selfNode) { //case 1
         PMwrite(parentNode + childOffset, 0); // reset node
         *free = address;
     } else if (depth == 0 && *free == -1) { //finished recursion w/o finding a free frame
@@ -55,45 +91,13 @@ static void findFree(uint64_t address, int depth, uint64_t *free, uint64_t paren
             *free = *maxFrame + 1;
         }
     } else {
-        evict //case 3
+        uint64_t evictOffset = 0;
+        uint64_t evictParent = 0;
+        int maxWeight = 0;
+        evict(0, free, &evictOffset, &evictParent, 0, 0, 0, 0, &maxWeight); //case 3
     }
 }
 
-
-static void
-evict(uint64_t address, uint64_t *dataPageAddress, uint64_t *evictedPageIndex, uint64_t *evictOffset,
-      uint64_t *evictParent, uint64_t offset, uint64_t parentAddr, int currentWeight, int depth,
-      int *maxWeight) {
-    word_t value = 0;
-    if (depth < TABLES_DEPTH - 1) {
-    for (int off = 0; off < OFFSET_WIDTH; ++off) {
-        PMread(address + off, &value);
-        if (value != 0) {
-            currentWeight += (address % 2 == 0 ? WEIGHT_EVEN : WEIGHT_ODD);
-
-            evict(value, dataPageAddress, evictedPageIndex, evictParent, evictOffset, off, address, currentWeight,
-                  depth + 1, maxWeight);
-        }
-    }
-            } else if (depth == TABLES_DEPTH - 1) {
-                if (currentWeight > *maxWeight || (currentWeight == *maxWeight && value < *evictedPageIndex)) {
-                    *maxWeight = currentWeight;
-                    *evictedPageIndex = value;
-                    *dataPageAddress = address;
-                    *evictParent = parentAddr;
-                    *evictOffset = offset;
-                }
-            }
-        }
-
-    if (depth == 0)
-    {
-        PMevict(*dataPageAddress, *evictedPageIndex);
-        clearTable(*dataPageAddress);
-    }
-
-
-}
 
 int getPhysicalAddress(uint64_t virtualAddress, word_t value) {
     uint64_t pagesOffsets[TABLES_DEPTH];
@@ -114,15 +118,13 @@ int getPhysicalAddress(uint64_t virtualAddress, word_t value) {
                 for (int i = 0; i < OFFSET_WIDTH; i++) {
                     clearTable(freeFrame);
                 }
-//            evict(virtualAddress, &currAddress);
             }
-            word_t val = freeFrame + 1;
             if (j == TABLES_DEPTH - 1) {
                 PMrestore(prevAddress, virtualAddress >> OFFSET_WIDTH);
                 return prevAddress + pageOff;
             }
-            PMwrite(prevAddress + pageOff, val);
-            prevAddress = freeFrame + 1; //useless in the last iteration
+            PMwrite(prevAddress + pageOff, freeFrame);
+            prevAddress = freeFrame; //useless in the last iteration
         }
     }
     return 1;
