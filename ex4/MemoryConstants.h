@@ -1,27 +1,72 @@
 #pragma once
-
 #include <climits>
 #include <stdint.h>
+
+
+
+#ifdef TEST_CONSTANTS
+
+#define OFFSET_WIDTH 1
+#define PHYSICAL_ADDRESS_WIDTH 4
+#define VIRTUAL_ADDRESS_WIDTH 5
+
+#elif NORMAL_CONSTANTS
+
+#define OFFSET_WIDTH 4
+#define PHYSICAL_ADDRESS_WIDTH 10
+#define VIRTUAL_ADDRESS_WIDTH 20
+
+#elif OFFSET_DIFFERENT_FROM_INDEX
+
+#define OFFSET_WIDTH 2
+#define PHYSICAL_ADDRESS_WIDTH 5
+#define VIRTUAL_ADDRESS_WIDTH 7
+
+
+#elif SINGLE_TABLE_CONSTANTS
+
+#define OFFSET_WIDTH 5
+#define PHYSICAL_ADDRESS_WIDTH 6
+#define VIRTUAL_ADDRESS_WIDTH 10
+
+#elif UNREACHABLE_FRAMES_CONSTANTS
+
+#define OFFSET_WIDTH 3
+#define PHYSICAL_ADDRESS_WIDTH 9
+#define VIRTUAL_ADDRESS_WIDTH 6
+
+#elif NO_EVICTION_CONSTANTS
+
+#define OFFSET_WIDTH 5
+#define PHYSICAL_ADDRESS_WIDTH 5
+#define VIRTUAL_ADDRESS_WIDTH 5
+
+#else
+
+#error "You didn't define which constants to use"
+
+#endif
+
+
+/* ----------- common to all constant configurations -------------- */
+
 
 // word
 typedef int word_t;
 
+// number of bits in a word
 #define WORD_WIDTH (sizeof(word_t) * CHAR_BIT)
 
-// number of bits in the offset,
-#define OFFSET_WIDTH 4
 // page/frame size in words
 // in this implementation this is also the number of entries in a table
 #define PAGE_SIZE (1LL << OFFSET_WIDTH)
 
 
-// number of bits in a physical address
-#define PHYSICAL_ADDRESS_WIDTH 10
+
 // RAM size in words
 #define RAM_SIZE (1LL << PHYSICAL_ADDRESS_WIDTH)
 
-// number of bits in a virtual address
-#define VIRTUAL_ADDRESS_WIDTH 20
+
 // virtual memory size in words
 #define VIRTUAL_MEMORY_SIZE (1LL << VIRTUAL_ADDRESS_WIDTH)
 
@@ -34,6 +79,6 @@ typedef int word_t;
 #define CEIL(VARIABLE) ( (VARIABLE - (int)VARIABLE)==0 ? (int)VARIABLE : (int)VARIABLE+1 )
 #define TABLES_DEPTH CEIL((((VIRTUAL_ADDRESS_WIDTH - OFFSET_WIDTH) / (double)OFFSET_WIDTH)))
 
-// the weights for the evacuation algorithm
 #define WEIGHT_EVEN 4
+
 #define WEIGHT_ODD 2
