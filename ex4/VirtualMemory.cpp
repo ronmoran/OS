@@ -33,43 +33,43 @@ static void translateAddr(uint64_t virtualAddress, uint64_t *buffer)
 
 
 static void
-evict(uint64_t address, int *dataPageAddress, uint64_t *evictOffset,
+evict(uint64_t address, int *dataPageAddress, uint64_t *pageVAddr,
       uint64_t *evictParent, uint64_t accumOff, uint64_t parentAddr, int currentWeight, int depth,
       int *maxWeight)
 {
     word_t value = 0;
-    if (depth < TABLES_DEPTH - 1)
+    if (depth < TABLES_DEPTH)
     {
         for (int off = 0; off < PAGE_SIZE; ++off)
         {
-            PMread(address + off, &value);
+            PMread(address*PAGE_SIZE + off, &value);
             if (value != 0)
             {
-                currentWeight += (address % 2 == 0 ? WEIGHT_EVEN : WEIGHT_ODD);
+                int newWeight = currentWeight + (value % 2 == 0 ? WEIGHT_EVEN : WEIGHT_ODD);
 
-                evict(value, dataPageAddress, evictParent, evictOffset,
-                      (accumOff + off) << OFFSET_WIDTH, address, currentWeight,
-                      depth + 1, maxWeight);
+                evict(value, dataPageAddress, evictParent, pageVAddr,
+                      depth == TABLES_DEPTH - 1? (accumOff + off):(accumOff + off) << OFFSET_WIDTH, address, newWeight,
+                      depth + 1, maxWeight); //todo no trenary
             }
         }
-    } else if (depth == TABLES_DEPTH - 1)
+    } else if (depth == TABLES_DEPTH)
     {
         currentWeight += (accumOff % 2 == 0 ? WEIGHT_EVEN : WEIGHT_ODD);
-        if (currentWeight > *maxWeight || (currentWeight == *maxWeight && accumOff < *evictOffset))
+        if (currentWeight > *maxWeight || (currentWeight == *maxWeight && accumOff < *pageVAddr))
         {
             *maxWeight = currentWeight;
             *dataPageAddress = address;
             *evictParent = parentAddr;
-            *evictOffset = accumOff;
+            *pageVAddr = accumOff;
         }
     }
 
 
     if (depth == 0)
     {
-        PMevict(*dataPageAddress, *evictOffset);
+        PMevict(*dataPageAddress, *pageVAddr);
         clearTable(*dataPageAddress);
-        PMwrite(*dataPageAddress + (((1ULL << OFFSET_WIDTH) - 1) & *evictOffset), 0);
+        PMwrite(*evictParent * PAGE_SIZE + (((1ULL << OFFSET_WIDTH) - 1) & *pageVAddr), 0);
     }
 }
 
@@ -86,7 +86,7 @@ static void findFree(uint64_t address, int depth, int *free, uint64_t parentNode
     *maxFrame = address > *maxFrame ? address : *maxFrame;
     for (int off = 0; off < PAGE_SIZE; ++off)
     {
-        PMread(address + off, &value);
+        PMread(address* PAGE_SIZE + off, &value);
         if (value == 0)
         {
             freeCells++;
@@ -101,17 +101,17 @@ static void findFree(uint64_t address, int depth, int *free, uint64_t parentNode
             }
         }
     }
-    if (freeCells == PAGE_SIZE && address != selfNode)
-    { //case 1
-        PMwrite(parentNode + childOffset, 0); // reset node
+    if (freeCells == PAGE_SIZE && address != selfNode && depth < TABLES_DEPTH)
+    { //case 1=
+        PMwrite(parentNode*PAGE_SIZE + childOffset, 0); // reset node
         *free = address;
-    } else if (depth == 0 && *free == -1)
+    }  else if (depth == 0 && *free == -1) //2, 3
     { //finished recursion w/o finding a free frame
 
         if (*maxFrame < NUM_FRAMES - 1)
         { //case 2
-            *free = *maxFrame + 1; //todo pmwrite
-
+            *free = *maxFrame + 1;
+            clearTable(*free);
         } else
         {
             uint64_t evictOffset = 0;
@@ -132,29 +132,29 @@ int getPhysicalAddress(uint64_t virtualAddress, word_t value)
     int64_t pageOff;
     for (int j = 0; j <= TABLES_DEPTH; j++)
     {
-        pageOff = pagesOffsets[j];
+        pageOff = pagesOffsets[TABLES_DEPTH-j];
         PMread(prevAddress * PAGE_SIZE + pageOff, &currAddress);
         if (currAddress == 0)
         {
             int depth = 0;
             int freeFrame = -1;
             uint64_t maxFrame = 0;
-            findFree(0, depth, &freeFrame, 0, 0, currAddress, &maxFrame);
-            if (freeFrame == -1)
-            { //need to evict
-                std::cout << "evict " << std::endl; //todo
-                for (int i = 0; i < OFFSET_WIDTH; i++)
-                {
-                    clearTable(freeFrame);
-                }
-            }
-            if (j == TABLES_DEPTH - 1)
+            if (j == TABLES_DEPTH)
             {
                 PMrestore(prevAddress, virtualAddress >> OFFSET_WIDTH);
-                return prevAddress + pageOff;
+                return prevAddress*PAGE_SIZE + pageOff;
             }
-            PMwrite(prevAddress + pageOff, freeFrame);
+            findFree(0, depth, &freeFrame, -1, 0, prevAddress, &maxFrame);
+            PMwrite(prevAddress * PAGE_SIZE + pageOff, freeFrame);
             prevAddress = freeFrame; //useless in the last iteration
+        }
+        else{
+            if (j == TABLES_DEPTH)
+            {
+                return prevAddress*PAGE_SIZE + pageOff;
+            }
+            prevAddress = currAddress; //useless in the last iteration
+
         }
     }
     return 1;
@@ -177,15 +177,3 @@ int VMwrite(uint64_t virtualAddress, word_t value)
 }
 
 
-//int main(int argc, char **argv)
-//{
-//    VMinitialize();
-////    uint64_t myArr[TABLES_DEPTH];
-////    translateAddr(65531, myArr);
-//
-//    for (uint64_t i = 0; i < (2 * NUM_FRAMES); ++i)
-//    {
-//        printf("writing to %llu\n", (long long int) i);
-//        VMwrite(5 * i * PAGE_SIZE, i);
-//    }
-//}
