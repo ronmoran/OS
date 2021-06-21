@@ -1,11 +1,8 @@
-#include <iostream>
 #include "VirtualMemory.h"
 #include "PhysicalMemory.h"
 
-//#define CEIL(VARIABLE) ( (VARIABLE - (int)VARIABLE)==0 ? (int)VARIABLE : (int)VARIABLE+1 )
 
-
-int getPhysicalAddress(uint64_t virtualAddress, word_t value);
+int getPhysicalAddress(uint64_t virtualAddress);
 
 void clearTable(uint64_t frameIndex)
 {
@@ -123,7 +120,7 @@ static void findFree(uint64_t address, int depth, int *free, uint64_t parentNode
 }
 
 
-int getPhysicalAddress(uint64_t virtualAddress, word_t value)
+int getPhysicalAddress(uint64_t virtualAddress)
 {
     uint64_t pagesOffsets[TABLES_DEPTH+1];
     translateAddr(virtualAddress, pagesOffsets);
@@ -163,7 +160,7 @@ int getPhysicalAddress(uint64_t virtualAddress, word_t value)
 
 int VMread(uint64_t virtualAddress, word_t *value)
 {
-    uint64_t pAddress = getPhysicalAddress(virtualAddress, *value);
+    uint64_t pAddress = getPhysicalAddress(virtualAddress);
     PMread(pAddress, value);
     return 1;
 }
@@ -171,7 +168,7 @@ int VMread(uint64_t virtualAddress, word_t *value)
 
 int VMwrite(uint64_t virtualAddress, word_t value)
 {
-    uint64_t pAddress = getPhysicalAddress(virtualAddress, value);
+    uint64_t pAddress = getPhysicalAddress(virtualAddress);
     PMwrite(pAddress, value);
     return 1;
 }
