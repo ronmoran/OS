@@ -1,5 +1,7 @@
 #include "VirtualMemory.h"
 #include "PhysicalMemory.h"
+#define FAILURE 0
+#define SUCCESS 1
 
 
 uint64_t getPhysicalAddress(uint64_t virtualAddress);
@@ -163,17 +165,25 @@ uint64_t getPhysicalAddress(uint64_t virtualAddress)
 
 int VMread(uint64_t virtualAddress, word_t *value)
 {
+    if (virtualAddress >= VIRTUAL_MEMORY_SIZE)
+    {
+        return FAILURE;
+    }
     uint64_t pAddress = getPhysicalAddress(virtualAddress);
     PMread(pAddress, value);
-    return 1;
+    return SUCCESS;
 }
 
 
 int VMwrite(uint64_t virtualAddress, word_t value)
 {
+    if (virtualAddress >= VIRTUAL_MEMORY_SIZE)
+    {
+        return FAILURE;
+    }
     uint64_t pAddress = getPhysicalAddress(virtualAddress);
     PMwrite(pAddress, value);
-    return 1;
+    return SUCCESS;
 }
 
 
